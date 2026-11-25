@@ -6,7 +6,9 @@
 
 A token launch radar for [make.fun's token-radar-01 bounty](https://make.fun/bounty/token-radar-01): it ranks pre-token protocols by implied launch value, from a sealed DefiLlama snapshot, and gives each one a costed farm plan.
 
-## The model (radar-2.1)
+## The model (radar-2.2 — variant B)
+
+Two fitted pieces, no hardcoded names. Variant B halves the Risk Curators category term (−1.416 → −0.708) as a hand-set regime-change prior: vault curators began launching tokens after the training period, so the fitted coefficient lags the regime. The blind numbers below describe the radar-2.1 base fit; re-validation of this variant is pending.
 
 Two fitted pieces, no hardcoded names:
 
@@ -17,7 +19,7 @@ Two fitted pieces, no hardcoded names:
 
 ## Blind validation (held out twice)
 
-| Test | radar-2.1 | starter (flat 0.25) |
+| Test | radar-2.2 (base fit) | starter (flat 0.25) |
 |---|---|---|
 | Size curve, leave-one-out RMSE (log mcap) | 2.107 | 2.293 |
 | Size curve, walk-forward RMSE (log mcap) | 2.121 | 2.434 |
@@ -28,7 +30,7 @@ A per-category multiple, a growth multiple and a maturity multiple were each fit
 ## Layout
 
 - `main.ts` — reads `/input/snapshot.json`, writes `/output/board.json`, `/output/data.js`, copies `dashboard/` and `screenshots/`, writes `/output/dossier.json`. Node 22, standard library only.
-- `lib/model.ts` — the radar-2.1 model, the board builder and the farm plans.
+- `lib/model.ts` — the radar-2.2 model, the board builder and the farm plans.
 - `dashboard/` — the static page (no network): sortable/filterable board, per-protocol detail with the value decomposition and farm plan, integrity strip with the validation numbers.
 - `screenshots/` — the board, a protocol detail view and a filtered view.
 - `vendor/makefun-board.ts` — make.fun's dossier library.

@@ -1,7 +1,9 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.1 — fitted from the snapshot's own listed peers, and kept only where blind tests
-// supported it. Two fitted pieces, no hardcoded names:
+// radar-2.2 (variant B) — the radar-2.1 base fit, with one hand-set change: the Risk Curators
+// term is halved to -0.7079 as a regime-change prior (vault curators began launching tokens
+// after the training period, so the fitted -1.4158 lags the regime). The blind numbers below
+// describe the radar-2.1 base fit; re-validation of this variant is pending.
 //
 //   1. The size curve (the multiple). On the 128 listed protocols with a market cap and a TVL,
 //      log(mcap) = 6.9646 + 0.5223 x log(TVL): the multiple falls as TVL grows, from about 0.65
@@ -15,7 +17,8 @@
 //   2. The token odds. P(token) is a logistic regression on every protocol, fitted by IRLS to
 //      convergence: logit = -0.437 + 0.2852 x (logTVL - 17.5)/2 + 0.8798 x (age - 500)/500
 //      + 1.7907 x age_unknown - 2.1476 x growth + a category term (Dexs +1.0142, Lending
-//      +1.0299, CEX -2.1693, Risk Curators -1.4158, and ten more). Age is the strongest input:
+//      +1.0299, CEX -2.1693, Risk Curators -0.7079 (hand-set regime-change prior, halved from
+//      the fitted -1.4158), and ten more). Age is the strongest input:
 //      a protocol under 90 days old has about a 30% record of holding a token, one over three
 //      years about 79%. Five-fold cross-validation AUC is 0.782 (0.779 without growth), and the
 //      calibration is close across the prediction bands. Growth enters only here, with a small
@@ -122,7 +125,7 @@ export const MODEL: ModelConstants = {
       'Liquid Staking': -0.6184,
       'Onchain Capital Allocator': -0.7713,
       'RWA': 0.1254,
-      'Risk Curators': -1.4158,
+      'Risk Curators': -0.7079,
       'Yield': 0.552,
       'Yield Aggregator': 0.0596,
     },
@@ -139,7 +142,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.1';
+export const MODEL_VERSION = 'radar-2.2';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;

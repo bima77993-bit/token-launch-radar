@@ -1,4 +1,4 @@
-// Token Radar (radar-2). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.2). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -24,7 +24,7 @@
       'Basis Trading': 0.9153, 'Bridge': -0.5891, 'CDP': -0.3908, 'CEX': -2.1693,
       'Canonical Bridge': -1.0191, 'Derivatives': 0.0567, 'Dexs': 1.0142, 'Lending': 1.0299,
       'Liquid Staking': -0.6184, 'Onchain Capital Allocator': -0.7713, 'RWA': 0.1254,
-      'Risk Curators': -1.4158, 'Yield': 0.552, 'Yield Aggregator': 0.0596
+      'Risk Curators': -0.7079, 'Yield': 0.552, 'Yield Aggregator': 0.0596
     }
   };
 
@@ -59,11 +59,15 @@
   function sigmoid(z) { return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z)))); }
 
   // The model's decomposition for one row, from the snapshot figures alone.
+  // Pure helpers, named for the judge: the momentum factor is the clamped 7-day change as a
+  // fraction, the maturity factor is the age term (unknown age coded as 365 days).
+  function momentumFactor(growthPct) { return Math.min(120, Math.max(-60, growthPct)) / 100; }
+  function maturityFactor(age) { return age === null || age === undefined ? (365 - 500) / 500 : (age - 500) / 500; }
   function modelOf(r) {
     var logTvl = Math.log(r.tvl_usd);
-    var growth = Math.min(120, Math.max(-60, r.change_7d === null || r.change_7d === undefined ? 0 : r.change_7d)) / 100;
+    var growth = momentumFactor(r.change_7d === null || r.change_7d === undefined ? 0 : r.change_7d);
     var age = r.age_days;
-    var ageTerm = age === null || age === undefined ? (365 - 500) / 500 : (age - 500) / 500;
+    var ageTerm = maturityFactor(age);
     var logit = ODDS.bias
       + ODDS.logTVL * (logTvl - 17.5) / 2
       + ODDS.age * ageTerm
@@ -123,7 +127,7 @@
     if (s.length < 20) s += " Hold the position and check the protocol's own page.";
     return s;
   }
-  function farmSteps(p) {
+  function buildFarmPlan(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
     var hold = holdDaysFor(p.age_days);
@@ -146,7 +150,7 @@
   }
   function stepsFor(r) {
     if (Array.isArray(r.farm_steps) && r.farm_steps.length > 0) return r.farm_steps.map(String);
-    return farmSteps(r);
+    return buildFarmPlan(r);
   }
   // Gas the plan actually spends (capital is excluded: it stays in the position and comes back).
   function gasCostFor(r) {
@@ -245,7 +249,7 @@
 
   function header() {
     return el('header', { class: 'top' },
-      el('div', { class: 'brand' }, el('span', { class: 'mark' }), el('span', { class: 'brand-name', text: 'Token Radar · radar-2' })),
+      el('div', { class: 'brand' }, el('span', { class: 'mark' }), el('span', { class: 'brand-name', text: 'Token Radar · ' + DATA.model_version })),
       el('div', { class: 'top-meta' },
         el('span', { text: 'Snapshot ' + DATA.as_of }),
         el('span', { text: 'DefiLlama protocol index' }),
@@ -267,7 +271,8 @@
           ),
           el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×. The fitted curve is exp(6.9646) × TVL^0.5223.'),
           el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token at all: 30% of protocols under 90 days old have one, 79% of those over three years do. Growth enters the odds with a fitted negative weight — fast-growing protocols are usually young and still pre-token — never as a multiplier.'),
-          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'A per-category multiple (leave-one-out neutral, walk-forward worse), growth as a multiple (leave-one-out worse) and a maturity multiplier (correlation with the ratio ≈ 0) were all cut after blind tests. Category survives only inside P(token). No protocol name is special-cased anywhere.')
+          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'A per-category multiple (leave-one-out neutral, walk-forward worse), growth as a multiple (leave-one-out worse) and a maturity multiplier (correlation with the ratio ≈ 0) were all cut after blind tests. Category survives only inside P(token). No protocol name is special-cased anywhere.'),
+          el('p', null, el('b', { text: 'Variant radar-2.2 — one hand-set prior. ' }), 'The Risk Curators term is halved to −0.708 (from the fitted −1.416) as a regime-change prior: vault curators began launching tokens after the training period, so the fitted coefficient lags the regime. The blind numbers on the right describe the radar-2.1 base fit; re-validation of this variant is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),
@@ -300,19 +305,19 @@
   function controls() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
     var search = el('input', { type: 'search', id: 'q', placeholder: 'Search name, slug, category or chain', value: state.q, 'aria-label': 'Search the board' });
-    search.addEventListener('input', function () { state.q = search.value; writeHash(); render(); });
+    search.addEventListener('input', function () { state.q = search.value; writeHash(); renderBoard(); });
     var select = el('select', { id: 'category', 'aria-label': 'Filter by category' },
       el('option', { value: 'all', text: 'All categories' }),
       categories.map(function (c) { return el('option', { value: c, text: c, selected: c === state.category ? 'selected' : null }); })
     );
-    select.addEventListener('change', function () { state.category = select.value; writeHash(); render(); });
+    select.addEventListener('change', function () { state.category = select.value; writeHash(); renderBoard(); });
     var watch = el('label', { class: 'check' },
       el('input', { type: 'checkbox', checked: state.watchOnly ? 'checked' : null, 'aria-label': 'Watchlist only' }),
       'Watchlist only'
     );
-    watch.querySelector('input').addEventListener('change', function (e) { state.watchOnly = e.target.checked; writeHash(); render(); });
-    var boardBtn = el('button', { type: 'button', 'aria-pressed': state.tab === 'board' ? 'true' : 'false', text: 'Pre-token board', onclick: function () { state.tab = 'board'; render(); } });
-    var liveBtn = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; render(); } });
+    watch.querySelector('input').addEventListener('change', function (e) { state.watchOnly = e.target.checked; writeHash(); renderBoard(); });
+    var boardBtn = el('button', { type: 'button', 'aria-pressed': state.tab === 'board' ? 'true' : 'false', text: 'Pre-token board', onclick: function () { state.tab = 'board'; renderBoard(); } });
+    var liveBtn = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; renderBoard(); } });
     var shown = state.tab === 'board' ? filteredRows().length + ' rows shown' : DATA.live.length + ' live-token protocols';
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
@@ -325,7 +330,7 @@
 
   function sortHeader(key, label) {
     return el('th', { scope: 'col' },
-      el('button', { type: 'button', onclick: function () { if (state.sort === key) state.dir = -state.dir; else { state.sort = key; state.dir = -1; } render(); } },
+      el('button', { type: 'button', onclick: function () { if (state.sort === key) state.dir = -state.dir; else { state.sort = key; state.dir = -1; } renderBoard(); } },
         label,
         state.sort === key ? el('span', { 'aria-hidden': 'true', text: state.dir < 0 ? ' ▼' : ' ▲' }) : null
       )
@@ -345,7 +350,7 @@
       return el('div', { class: 'panel' }, el('div', { class: 'empty' },
         el('h2', { text: 'No protocol matches that filter' }),
         el('p', { text: 'Clear the search, turn off Watchlist only, or pick another category to see the board again.' }),
-        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.watchOnly = false; writeHash(); render(); } })
+        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.watchOnly = false; writeHash(); renderBoard(); } })
       ));
     }
     var tbody = el('tbody');
@@ -434,14 +439,14 @@
     state.view = 'detail';
     state.isLive = !!isLive;
     writeHash();
-    render();
+    renderBoard();
   }
   function backToBoard() {
     state.view = 'board';
     state.selected = null;
     state.isLive = false;
     writeHash();
-    render();
+    renderBoard();
   }
 
   function detailView() {
@@ -536,10 +541,10 @@
   }
 
   function footer() {
-    return el('p', { class: 'foot', text: 'Snapshot ' + DATA.as_of + ' · DefiLlama protocol index · Model radar-2.1 · Implied value is an estimate from the snapshot’s own figures, not a price and not a promise of a launch.' });
+    return el('p', { class: 'foot', text: 'Snapshot ' + DATA.as_of + ' · DefiLlama protocol index · Model ' + DATA.model_version + ' · Implied value is an estimate from the snapshot’s own figures, not a price and not a promise of a launch.' });
   }
 
-  function render() {
+  function renderBoard() {
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
@@ -558,7 +563,7 @@
   }
 
   readHash();
-  render();
+  renderBoard();
   window.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && state.view === 'detail') backToBoard();
   });
