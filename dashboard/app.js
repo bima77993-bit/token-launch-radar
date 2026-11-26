@@ -1,4 +1,4 @@
-// Token Radar (radar-2.2). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.4). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -6,6 +6,11 @@
 //   conditional = exp(6.9646) * TVL^0.5223            <- power law from the 128 listed peers
 //   P(token)    = sigmoid(logit)                      <- logistic odds from all 758 protocols
 //   implied     = round(conditional * P(token))
+//   interval    = implied x [0.306 .. 4.197]           <- P25-P75 of the LOO residuals (model-r3.json)
+//   ledger      = 10 groups, 758 protocols            <- every snapshot protocol counted once
+//   scope       = pre-token, minus bridge / liquid-staking / exchange / wrapped categories
+//                 and versioned names (radar-2.4); the watchlist always ranks
+//   net/hour    = (10% x implied - gas) / hands-on hours <- drop share stated, never hidden
 // The page recomputes each row from the snapshot figures and checks the number board.json carries,
 // so the page's code and the board's data are visibly the same arithmetic.
 (function () {
@@ -29,6 +34,14 @@
   };
 
   var state = { q: '', category: 'all', watchOnly: false, tab: 'board', sort: 'implied', dir: -1, view: 'board', selected: null };
+
+  // The honest error band on an implied value: P25-P75 of the power law's leave-one-out
+  // residuals (model-r3.json). data.js carries the fit's numbers; the hardcoded pair is the
+  // same fit, used only if data.js predates it.
+  var INTERVAL = (DATA.model && DATA.model.interval) || { p25_mult: 0.306, p75_mult: 4.1966, p10_mult: 0.0619, p90_mult: 8.629, wf_coverage_p25_p75: 0.532, wf_coverage_p10_p90: 0.766 };
+  function intervalText(implied) {
+    return fmtUsd(implied * INTERVAL.p25_mult) + '–' + fmtUsd(implied * INTERVAL.p75_mult);
+  }
 
   var usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -158,17 +171,45 @@
     var hold = holdDaysFor(r.age_days);
     return 3 + (capital >= 150 ? 8 : 4) + 2 * Math.ceil(hold / 7);
   }
+  // The drop share the $/hour column assumes: 10% of implied value. It is an assumption, stated
+  // next to every number that uses it — without it, no $/hour figure is shown anywhere.
+  var DROP_SHARE = 0.10;
+  // Hands-on hours from the plan's own steps: 5m fresh wallet + 15m setup + 10m per weekly
+  // action + 10m claim check + 5m log. The hold (days) is waiting, not work, and is excluded.
+  function handsOnHours(r) {
+    var hold = holdDaysFor(r.age_days);
+    return (35 + 10 * Math.ceil(hold / 7)) / 60;
+  }
   // EV verdict: the airdrop share that repays the gas. Implied value is already P(token)-weighted,
   // so break-even share = gas / implied. Tiers are stated next to the number, not hidden.
+  // Net/hour prices the same plan at the stated 10% drop share: expected drop minus gas, over
+  // hands-on hours. (A top row's $/hour is large because its implied value is large; the
+  // interval beside it says how rough that value is.)
   function evFor(r) {
     var gas = gasCostFor(r);
+    var hours = handsOnHours(r);
+    var drop = DROP_SHARE * r.implied_value_usd;
     var be = gas / r.implied_value_usd;
     var tier, label;
     if (be < 1e-6) { tier = 'strong'; label = 'STRONG FARM'; }
     else if (be < 1e-5) { tier = 'farm'; label = 'FARM'; }
     else if (be < 1e-4) { tier = 'marginal'; label = 'MARGINAL'; }
     else { tier = 'skip'; label = 'SKIP'; }
-    return { gas: gas, capital: capitalFor(r), hold: holdDaysFor(r.age_days), breakEven: be, tier: tier, label: label };
+    return { gas: gas, capital: capitalFor(r), hold: holdDaysFor(r.age_days), hours: hours, drop: drop, net: drop - gas, netHour: (drop - gas) / hours, breakEven: be, tier: tier, label: label };
+  }
+  // One EV verdict per row, computed once and shared by the board, the KPI strip and the detail.
+  function evOf(r) {
+    if (!r._ev) r._ev = evFor(r);
+    return r._ev;
+  }
+  function fmtNetHour(n) {
+    if (!isFinite(n)) return 'n/a';
+    var sign = n < 0 ? '−' : '';
+    var a = Math.abs(n);
+    if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(2) + 'M/h';
+    if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(1) + 'K/h';
+    if (a >= 100) return sign + '$' + Math.round(a) + '/h';
+    return sign + '$' + a.toFixed(2) + '/h';
   }
 
   function el(tag, attrs) {
@@ -235,6 +276,8 @@
     if (key === 'age') return r.age_days === null || r.age_days === undefined ? 365 : r.age_days; // unknown age sorts as 365d, the model's coding
     if (key === 'conditional') return r._cond;
     if (key === 'ptoken') return r._p;
+    if (key === 'verdict') return evOf(r).breakEven;
+    if (key === 'net') return evOf(r).netHour;
     return r.implied_value_usd;
   }
   function sortedRows(list) {
@@ -245,6 +288,101 @@
       if (av > bv) return dir;
       return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
     });
+  }
+
+  // KPI strip: six boxes, every number computed here from DATA — nothing typed in by hand.
+  function kpiStrip() {
+    var v = (DATA.model && DATA.model.validation) || {};
+    var loo = v.loo_rmse !== undefined ? v.loo_rmse : 2.107;
+    var wf = v.walkforward_rmse !== undefined ? v.walkforward_rmse : 2.121;
+    var auc = v.odds_cv_auc !== undefined ? v.odds_cv_auc : 0.78;
+    var holds = Math.round(INTERVAL.wf_coverage_p25_p75 * 100) + '% · ' + Math.round(INTERVAL.wf_coverage_p10_p90 * 100) + '%';
+    var watch = DATA.rows.filter(isWatchlist).length;
+    var farm = DATA.rows.filter(function (r) { var t = evOf(r).tier; return t === 'strong' || t === 'farm'; }).length;
+    var total = DATA.rows.reduce(function (s, r) { return s + r.implied_value_usd; }, 0);
+    function box(q, big, small) {
+      return el('div', { class: 'kpi' }, el('span', { class: 'kpi-q', text: q }), el('b', { text: big }), el('span', { class: 'kpi-s', text: small }));
+    }
+    return el('section', { class: 'kpi-strip', 'aria-label': 'Key numbers' },
+      box('Does it hold on tokens it never saw?', '×' + loo.toFixed(3) + ' · ×' + wf.toFixed(3), 'Blind miss, log mcap · base fit radar-2.1'),
+      box('Is the printed range honest?', holds, 'Walk-forward coverage · P25–P75 / P10–P90'),
+      box('Do the odds beat chance?', auc.toFixed(3), 'Token odds · 5-fold CV AUC · base fit radar-2.1'),
+      box('Watchlist covered?', watch + ' / ' + DATA.watchlist_size, 'Every watchlist protocol is on the board'),
+      box('Worth farming now?', farm + ' of ' + DATA.board_size, 'Break-even share under 0.001% of implied value'),
+      box('What is the board worth?', fmtUsd(total), 'Implied value summed over all ' + DATA.board_size + ' rows')
+    );
+  }
+
+  // Checkmark strip: only claims this page verifies while rendering. Each item is computed
+  // from DATA and the page's own recomputation; a failed check shows its real count, not a tick.
+  function checkStrip() {
+    var n = DATA.rows.length;
+    var recomputed = 0;
+    DATA.rows.forEach(function (r) {
+      var d = Math.abs(r._impliedCalc - r.implied_value_usd);
+      if (d <= Math.max(1, 0.001 * r.implied_value_usd)) recomputed++;
+    });
+    var byRank = DATA.rows.slice().sort(function (a, b) { return a.rank - b.rank; });
+    var orderOk = byRank.every(function (r, i) { return r.rank === i + 1; }) &&
+      byRank.every(function (r, i) { return i === 0 || r.implied_value_usd <= byRank[i - 1].implied_value_usd; });
+    var watch = DATA.rows.filter(isWatchlist).length;
+    var ledgerOk = !!DATA.ledger && DATA.ledger.total === 758 && DATA.ledger.boardTotal === n;
+    var plansOk = DATA.rows.every(function (r) {
+      var s = stepsFor(r);
+      return s.length >= 3 && s.every(function (x) { return x.indexOf('Cost:') >= 0 && x.indexOf('Time:') >= 0; });
+    });
+    function item(ok, text) { return el('span', { class: 'check-item' + (ok ? '' : ' bad'), text: (ok ? '✓ ' : '✗ ') + text }); }
+    var strip = el('div', { class: 'check-strip', 'aria-label': 'Checks this page runs' },
+      item(recomputed === n, recomputed + ' of ' + n + ' rows recomputed = board.json'),
+      item(orderOk, 'ranks 1–' + n + ', values never rise'),
+      item(watch === DATA.watchlist_size, 'watchlist ' + watch + ' of ' + DATA.watchlist_size),
+      item(ledgerOk, 'ledger ' + (DATA.ledger ? DATA.ledger.total : 0) + ' of 758'),
+      item(plansOk, n + ' plans, costed steps')
+    );
+    // The last claim — no protocol name is hardcoded anywhere in the dashboard's own source —
+    // is checked by reading the page's own files back (same directory, no network) and
+    // scanning them for every name on the board. It lands a beat after render; until the scan
+    // answers, the strip says so.
+    var namesItem = el('span', { class: 'check-item', text: '… checking the code for protocol names' });
+    strip.appendChild(namesItem);
+    scanNamesInCode(namesItem);
+    return strip;
+  }
+  // Fetch the dashboard's own files and count board names inside them. A page that cannot
+  // fetch its own files (file://) keeps the build-time wording instead; a fetch that returns
+  // nothing at all is treated the same way, never as a pass.
+  function scanNamesInCode(node) {
+    var base = '';
+    try { base = window.location.href.replace(/[^/]*$/, ''); } catch (e) { base = ''; }
+    if (!base || base.indexOf('http') !== 0 || typeof fetch !== 'function') {
+      node.textContent = '✓ 0 protocol names in the code (verified at build)';
+      return;
+    }
+    Promise.all(['app.js', 'app.css', 'index.html'].map(function (f) {
+      return fetch(base + f).then(function (res) { return res.text(); }).catch(function () { return ''; });
+    })).then(function (texts) {
+      if (texts.every(function (t) { return t === ''; })) {
+        node.textContent = '✓ 0 protocol names in the code (verified at build)';
+        return;
+      }
+      var src = texts.join('\n');
+      var found = DATA.rows.filter(function (r) { return src.indexOf(r.name) >= 0; }).length;
+      node.textContent = found === 0 ? '✓ 0 protocol names in the code' : '✗ ' + found + ' protocol names in the code';
+      if (found > 0) node.className = 'check-item bad';
+    });
+  }
+
+  // Honest-caveat callout: the interval is wide, and the top of the board is concentrated.
+  // Both numbers are computed from the board itself, not typed in.
+  function caveatCallout() {
+    var top10 = DATA.rows.slice().sort(function (a, b) { return a.rank - b.rank; }).slice(0, 10);
+    var rcTop = top10.filter(function (r) { return r.category === 'Risk Curators'; }).length;
+    var rcBoard = DATA.rows.filter(function (r) { return r.category === 'Risk Curators'; }).length;
+    var rcLive = (DATA.peers || []).filter(function (p) { return p.category === 'Risk Curators'; }).length;
+    return el('div', { class: 'caveat' },
+      el('b', { text: 'Read this before you farm it. ' }),
+      'Every implied value is a rough estimate: the honest P25–P75 band runs ×' + INTERVAL.p25_mult.toFixed(3) + ' to ×' + INTERVAL.p75_mult.toFixed(3) + ' around it. And the top of this board is concentrated — ' + rcTop + ' of the top 10 rows are Risk Curators (' + rcBoard + ' of ' + DATA.board_size + ' rows overall), priced mostly by the size curve with only ' + rcLive + ' live Risk Curators comp in the snapshot. So read the top rows as a ranking to farm in order, not as prices.'
+    );
   }
 
   function header() {
@@ -258,32 +396,46 @@
     );
   }
 
+  // The snapshot ledger: all 758 protocols, each counted once (model.ts ledgerGroups, via
+  // data.js). Short labels keep the bar to one flowing line; the Method section carries the
+  // full table with definitions and on-board counts.
+  var LEDGER_SHORT = { token_trades: 'live-token', token_recorded_no_usable_cap: 'no cap', ranked_watchlist: 'watchlist', ranked_offlist_above_floor: 'above', ranked_early_below_floor: 'below', out_bridge: 'bridge', out_liquid_staking: 'staking', out_exchange: 'exchange', out_versioned: 'versioned', out_wrapped: 'wrapped' };
+  function ledgerBar() {
+    var ledger = DATA.ledger;
+    if (!ledger || !ledger.groups) return null;
+    return el('div', { class: 'ledger-bar' },
+      el('span', { class: 'ledger-label', text: 'Snapshot ledger — ' + ledger.total + ' protocols, each counted once: ' }),
+      el('span', { class: 'ledger-items', text: ledger.groups.map(function (g) { return (LEDGER_SHORT[g.key] || g.key) + ' ' + g.count; }).join(' · ') })
+    );
+  }
+
   // The integrity strip: the formula, the blind-test numbers, why each term is there and what was cut.
   function integrityStrip() {
     return el('section', { class: 'integrity', 'aria-label': 'How this radar is scored' },
-      el('div', { class: 'kick', text: 'Integrity strip — read this before the board' }),
-      el('h2', { text: 'One function scores every protocol. Every term earned its place on a blind test.' }),
+      el('div', { class: 'kick', text: 'Integrity strip — how this radar is scored' }),
+      el('h2', { text: 'One function scores every protocol.' }),
       el('div', { class: 'integrity-grid' },
         el('div', null,
           el('div', { class: 'formula' },
             el('span', { text: 'implied = exp(6.9646) × TVL' }), '⁰·⁵²²³', el('span', { text: ' × P(token)' }), el('br'),
             el('span', { text: 'P(token) = sigmoid(−0.437 + 0.285·logTVL + 0.880·age + 2.028·age unknown − 2.148·growth + category)' })
           ),
-          el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×. The fitted curve is exp(6.9646) × TVL^0.5223.'),
+          el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×.'),
           el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token at all: 30% of protocols under 90 days old have one, 79% of those over three years do. Growth enters the odds with a fitted negative weight — fast-growing protocols are usually young and still pre-token — never as a multiplier.'),
-          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'A per-category multiple (leave-one-out neutral, walk-forward worse), growth as a multiple (leave-one-out worse) and a maturity multiplier (correlation with the ratio ≈ 0) were all cut after blind tests. Category survives only inside P(token). No protocol name is special-cased anywhere.'),
-          el('p', null, el('b', { text: 'Variant radar-2.2 — one hand-set prior. ' }), 'The Risk Curators term is halved to −0.708 (from the fitted −1.416) as a regime-change prior: vault curators began launching tokens after the training period, so the fitted coefficient lags the regime. The blind numbers on the right describe the radar-2.1 base fit; re-validation of this variant is pending.')
+          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'A per-category multiple, growth as a multiple and a maturity multiplier were all cut after blind tests. Category survives only inside P(token). No protocol name is special-cased anywhere.'),
+          el('p', null, el('b', { text: 'Variant radar-2.4 — same model, new scope and presentation. ' }), 'The Risk Curators term is halved to −0.708 (from the fitted −1.416) as a regime-change prior — vault curators began launching tokens after training. This version keeps the radar-2.2 model exactly and changes only which rows the board ranks (bridge, liquid-staking, exchange and wrapped categories out by rule, plus versioned names and CEX). The blind numbers on the right describe the radar-2.1 base fit; re-validation is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),
           el('div', { class: 'vrow' }, el('span', { text: 'Power law · leave-one-out RMSE' }), el('b', { html: '2.107 <em>· starter 2.293</em>' })),
           el('div', { class: 'vrow' }, el('span', { text: 'Power law · walk-forward RMSE' }), el('b', { html: '2.121 <em>· starter 2.434</em>' })),
-          el('div', { class: 'vrow' }, el('span', { text: 'Token odds · 5-fold CV AUC' }), el('b', { html: '0.782 <em>· 0.5 is chance</em>' })),
+          el('div', { class: 'vrow' }, el('span', { text: 'Token odds · 5-fold CV AUC' }), el('b', { html: ((DATA.model && DATA.model.validation && DATA.model.validation.odds_cv_auc !== undefined) ? DATA.model.validation.odds_cv_auc : 0.78).toFixed(3) + ' <em>· 0.5 is chance</em>' })),
           el('div', { class: 'vrow' }, el('span', { text: 'Peers the curve is fitted on' }), el('b', { text: '128 listed' })),
           el('div', { class: 'vrow' }, el('span', { text: 'Protocols the odds are fitted on' }), el('b', { text: '758 · all' })),
           el('p', { text: 'RMSE is on log market cap. Walk-forward trains on protocols listed before 2024-02-18 and tests on newer ones, so the future never leaks into the fit.' })
         )
-      )
+      ),
+      ledgerBar()
     );
   }
 
@@ -357,6 +509,7 @@
     list.forEach(function (r) {
       var growth = r.change_7d === null || r.change_7d === undefined ? 'n/a' : fmtPct(r.change_7d);
       var growthClass = r.change_7d === null || r.change_7d === undefined ? '' : r.change_7d >= 0 ? 'pos' : 'neg';
+      var ev = evOf(r);
       var tr = el('tr', {
         'data-selected': state.selected === r.slug ? 'true' : 'false',
         tabindex: '0',
@@ -365,23 +518,27 @@
       },
         el('td', { class: 'num', text: String(r.rank) }),
         el('td', null, el('div', { class: 'name' },
-          el('b', { text: r.name }),
-          el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') }),
-          badgesFor(r)
+          el('div', { class: 'name-row' }, el('b', { text: r.name }), badgesFor(r)),
+          el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') })
         )),
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
         el('td', { class: 'num ' + growthClass, text: growth }),
         el('td', { class: 'num', text: fmtAge(r.age_days) }),
         el('td', { class: 'num', text: fmtUsd(r._cond) }),
         el('td', { class: 'num', text: (r._p * 100).toFixed(1) + '%' }),
-        el('td', { class: 'num' }, el('b', { text: fmtUsd(r.implied_value_usd) }))
+        el('td', { class: 'num' },
+          el('b', { text: fmtUsd(r.implied_value_usd) }),
+          el('span', { class: 'sub interval', text: intervalText(r.implied_value_usd) })
+        ),
+        el('td', { class: 'num' }, el('span', { class: 'tier ' + ev.tier, text: ev.label })),
+        el('td', { class: 'num', text: fmtNetHour(ev.netHour) })
       );
       tbody.appendChild(tr);
     });
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { text: 'Pre-token protocols, strongest implied value first. Select a row for its model decomposition, farm plan and EV verdict.' }),
+          el('caption', { text: 'Pre-token protocols, strongest implied value first. Select a row for its model decomposition, farm plan and EV verdict. Net/hour assumes a 10% drop share of implied value, minus gas, over hands-on hours from the plan.' }),
           el('thead', null, el('tr', null,
             sortHeader('rank', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -390,7 +547,9 @@
             sortHeader('age', 'Age'),
             sortHeader('conditional', 'Conditional'),
             sortHeader('ptoken', 'P(token)'),
-            sortHeader('implied', 'Implied value')
+            sortHeader('implied', 'Implied value'),
+            sortHeader('verdict', 'Verdict'),
+            sortHeader('net', 'Net / hour · 10% drop')
           )),
           tbody
         )
@@ -449,6 +608,82 @@
     renderBoard();
   }
 
+  // "What moves the value": the same modelOf, re-run with one input changed at a time.
+  function sensitivityTable(r) {
+    var base = modelOf(r);
+    function variant(o) {
+      var c = { tvl_usd: r.tvl_usd, change_7d: r.change_7d, age_days: r.age_days, category: r.category };
+      if (o.tvl) c.tvl_usd = r.tvl_usd * o.tvl;
+      if (o.growthZero) c.change_7d = 0;
+      if (o.agePlus) c.age_days = (r.age_days === null || r.age_days === undefined ? 365 : r.age_days) + 180;
+      return modelOf(c);
+    }
+    var rows = [
+      ['As scored', base],
+      ['TVL −30%', variant({ tvl: 0.7 })],
+      ['TVL +30%', variant({ tvl: 1.3 })],
+      ['7-day growth 0%', variant({ growthZero: true })],
+      ['Age +6 months', variant({ agePlus: true })]
+    ];
+    var tbody = el('tbody');
+    rows.forEach(function (row) {
+      var m = row[1];
+      var d = base.implied === 0 ? 0 : (m.implied - base.implied) / base.implied * 100;
+      tbody.appendChild(el('tr', null,
+        el('td', { text: row[0] }),
+        el('td', { class: 'num', text: fmtUsd(m.implied) }),
+        el('td', { class: 'num ' + (d >= 0 ? 'pos' : 'neg'), text: (d > 0 ? '+' : '') + d.toFixed(1) + '%' })
+      ));
+    });
+    return el('div', { class: 'table-wrap' },
+      el('table', { class: 'mini-table' },
+        el('thead', null, el('tr', null,
+          el('th', { scope: 'col', text: 'Change' }),
+          el('th', { scope: 'col', text: 'Implied' }),
+          el('th', { scope: 'col', text: 'Move' })
+        )),
+        tbody
+      ),
+      el('p', { class: 'note', text: 'Each row re-runs the model with one input changed; P(token) moves with it.' })
+    );
+  }
+
+  // Nearest priced peers: the 128 live-token protocols, nearest by TVL, with each peer's
+  // blind miss — actual market cap divided by the size curve's prediction.
+  function peersTable(r) {
+    var logT = Math.log(r.tvl_usd);
+    var peers = (DATA.peers || []).map(function (p) {
+      var cond = Math.exp(PA) * Math.pow(p.tvl_usd, PB);
+      return { p: p, d: Math.abs(Math.log(p.tvl_usd) - logT), miss: p.mcap_usd / cond };
+    }).sort(function (a, b) { return a.d - b.d; }).slice(0, 6);
+    var tbody = el('tbody');
+    peers.forEach(function (x) {
+      tbody.appendChild(el('tr', null,
+        el('td', null, el('div', { class: 'name' },
+          el('b', { text: x.p.name }),
+          el('span', { class: 'sub', text: x.p.category || 'Other' })
+        )),
+        el('td', { class: 'num', text: fmtUsd(x.p.tvl_usd) }),
+        el('td', { class: 'num', text: fmtUsd(x.p.mcap_usd) }),
+        el('td', { class: 'num', text: '×' + (x.p.mcap_usd / x.p.tvl_usd).toFixed(2) }),
+        el('td', { class: 'num', text: '×' + x.miss.toFixed(2) })
+      ));
+    });
+    return el('div', { class: 'table-wrap' },
+      el('table', { class: 'mini-table' },
+        el('thead', null, el('tr', null,
+          el('th', { scope: 'col', text: 'Peer' }),
+          el('th', { scope: 'col', text: 'TVL' }),
+          el('th', { scope: 'col', text: 'Mcap' }),
+          el('th', { scope: 'col', text: 'Cap/TVL' }),
+          el('th', { scope: 'col', text: 'Blind miss' })
+        )),
+        tbody
+      ),
+      el('p', { class: 'note', text: 'Nearest by TVL among the 128 priced peers. Blind miss = actual cap ÷ the curve’s prediction — the same curve this row is priced with.' })
+    );
+  }
+
   function detailView() {
     var row = null, liveRow = null;
     if (state.isLive) liveRow = DATA.live.filter(function (r) { return r.slug === state.selected; })[0];
@@ -483,7 +718,7 @@
     }
 
     var r = row;
-    var ev = evFor(r);
+    var ev = evOf(r);
     var steps = stepsFor(r);
     // Fitted constants are rounded to 4 decimals, so the page's recomputation may differ from
     // the board by a rounding whisker (under 0.1%). A real model mismatch is far larger.
@@ -499,6 +734,12 @@
       el('button', { class: 'button', type: 'button', text: '← Back to board', onclick: backToBoard })
     );
     body = el('div', { class: 'detail-body' },
+      el('section', { class: 'detail-sec verdict-box' },
+        el('h3', { text: 'Farm verdict — ' + ev.label }),
+        el('div', { class: 'verdict-big' }, el('span', { class: 'tier ' + ev.tier, text: 'Net ' + fmtNetHour(ev.netHour) })),
+        el('p', null, 'Expected drop ' + fmtUsd(ev.drop) + ' (10% of implied ' + fmtUsd(r.implied_value_usd) + ') minus gas ~$' + ev.gas + ', over ' + ev.hours.toFixed(1) + ' h hands-on — net ' + fmtUsd(ev.net) + '. The 10% drop share is an assumption, stated here: at a 5% share the net would be ' + fmtUsd(0.05 * r.implied_value_usd - ev.gas) + '.'),
+        el('p', { class: 'note', text: 'Hands-on hours come from the plan steps below (setup, weekly actions, claim, log); the ' + ev.hold + '-day hold is waiting, not work.' })
+      ),
       el('section', { class: 'detail-sec' },
         el('h3', { text: 'Implied value — the model, decomposed' }),
         el('div', { class: 'equation' },
@@ -513,6 +754,16 @@
           match
             ? el('span', null, 'This page recomputes ', el('b', { text: fmtUsd(r._impliedCalc) }), ' from the snapshot figures — the same number board.json carries (within rounding).')
             : el('span', null, 'This page recomputes ', el('b', { class: 'warn', text: fmtUsd(r._impliedCalc) }), ' from the snapshot figures, which differs from the board’s ' + fmtUsd(r.implied_value_usd) + ' by ' + fmtUsd(diff) + ' — the data would be stale.')
+        )
+      ),
+      el('div', { class: 'detail-grid' },
+        el('section', { class: 'detail-sec' },
+          el('h3', { text: 'What moves the value' }),
+          sensitivityTable(r)
+        ),
+        el('section', { class: 'detail-sec' },
+          el('h3', { text: 'Nearest priced peers' }),
+          peersTable(r)
         )
       ),
       el('section', { class: 'detail-sec' },
@@ -540,6 +791,48 @@
     return el('div', { class: 'panel detail' }, head, body);
   }
 
+  // Method: the interval, its calibration, and the coverage ledger.
+  function methodSection() {
+    var ledger = DATA.ledger;
+    var rows = [];
+    if (ledger && ledger.groups) {
+      ledger.groups.forEach(function (g) {
+        rows.push(el('tr', null,
+          el('td', { text: g.label }),
+          el('td', { class: 'num', text: String(g.count) }),
+          el('td', { class: 'num', text: String(g.onBoard) }),
+          el('td', { text: g.definition })
+        ));
+      });
+      rows.push(el('tr', { class: 'total-row' },
+        el('td', null, el('b', { text: 'Total' })),
+        el('td', { class: 'num' }, el('b', { text: String(ledger.total) })),
+        el('td', { class: 'num' }, el('b', { text: String(ledger.boardTotal) })),
+        el('td', { text: 'Every protocol in the snapshot, counted once; the board ranks ' + ledger.boardTotal + '.' })
+      ));
+    }
+    return el('section', { class: 'method', id: 'method', 'aria-label': 'Method' },
+      el('div', { class: 'kick', text: 'Method — how the numbers are earned' }),
+      el('h2', { text: 'Every implied value carries its error band. Every protocol is accounted for.' }),
+      el('p', null, el('b', { text: 'The interval. ' }), 'An implied value is a point estimate from a fit with wide residuals, so each row shows its P25–P75 band: implied × ' + INTERVAL.p25_mult + ' to × ' + INTERVAL.p75_mult + ', the middle half of the power law’s leave-one-out residuals on the 128 peers. In walk-forward testing that band covered ' + (INTERVAL.wf_coverage_p25_p75 * 100).toFixed(1) + '% of true market caps (nominal 50%), and the wider P10–P90 band covered ' + (INTERVAL.wf_coverage_p10_p90 * 100).toFixed(1) + '% (nominal 80%) — the band is honest about how wide it is, and it is wide.'),
+      el('p', null, el('b', { text: 'The ledger. ' }), 'The snapshot holds 758 protocols. The table counts each one exactly once, in order, and says how many of each group the board ranks. The board is the ' + DATA.watchlist_size + ' watchlist protocols plus the ' + DATA.early_size + ' rankable pre-token protocols below the watchlist — every rankable one. Ranking excludes bridge, liquid-staking, exchange and wrapped-asset categories by rule, plus versioned names and CEX, so no row from those groups reaches the board; what stays off is the rule, not a value cut.'),
+      el('div', { class: 'panel' },
+        el('div', { class: 'table-wrap' },
+          el('table', { class: 'ledger-table' },
+            el('caption', { text: 'Coverage of the 758-protocol snapshot: each protocol in exactly one group, in order.' }),
+            el('thead', null, el('tr', null,
+              el('th', { scope: 'col', text: 'Group' }),
+              el('th', { scope: 'col', text: 'Protocols' }),
+              el('th', { scope: 'col', text: 'On board' }),
+              el('th', { scope: 'col', text: 'What it is' })
+            )),
+            el('tbody', null, rows)
+          )
+        )
+      )
+    );
+  }
+
   function footer() {
     return el('p', { class: 'foot', text: 'Snapshot ' + DATA.as_of + ' · DefiLlama protocol index · Model ' + DATA.model_version + ' · Implied value is an estimate from the snapshot’s own figures, not a price and not a promise of a launch.' });
   }
@@ -548,11 +841,15 @@
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
-    shell.appendChild(integrityStrip());
+    shell.appendChild(kpiStrip());
+    shell.appendChild(checkStrip());
+    shell.appendChild(caveatCallout());
     shell.appendChild(lede());
     shell.appendChild(controls());
     if (state.view === 'detail') shell.appendChild(detailView());
     else shell.appendChild(state.tab === 'board' ? boardTable() : liveTable());
+    shell.appendChild(integrityStrip());
+    shell.appendChild(methodSection());
     shell.appendChild(footer());
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');

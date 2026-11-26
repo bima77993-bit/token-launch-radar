@@ -1,7 +1,12 @@
 // A working token-radar-01 entry (Node 22, standard library only).
 //
+// radar-2.4: the radar-2.2 model unchanged; the board's scope rule now excludes bridge,
+// liquid-staking, exchange and wrapped-asset categories (plus versioned names and CEX),
+// and the dashboard adds a KPI strip, a checkmark strip, verdict + $/hour columns,
+// sensitivity and nearest-peer detail, and an honest-caveat callout.
+//
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
-// pre-token protocol with the radar-2.2 model in lib/model.ts, writes the ranked board to
+// pre-token protocol with the radar-2.4 model in lib/model.ts, writes the ranked board to
 // /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output. Last, it
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 //

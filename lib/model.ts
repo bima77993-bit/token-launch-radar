@@ -1,9 +1,13 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.2 (variant B) — the radar-2.1 base fit, with one hand-set change: the Risk Curators
-// term is halved to -0.7079 as a regime-change prior (vault curators began launching tokens
-// after the training period, so the fitted -1.4158 lags the regime). The blind numbers below
-// describe the radar-2.1 base fit; re-validation of this variant is pending.
+// radar-2.4 — the radar-2.2 model exactly (same coefficients, same implied value per
+// protocol), with a new board scope and presentation levers: the board now excludes
+// bridge, liquid-staking, exchange and wrapped-asset categories by rule (radar-4 scope
+// research), plus a P25-P75 interval on every implied value and a coverage ledger of the
+// 758-protocol snapshot. The model itself is the radar-2.1 base fit, with one hand-set change:
+// the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
+// launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
+// numbers below describe the radar-2.1 base fit; re-validation of the variant is pending.
 //
 //   1. The size curve (the multiple). On the 128 listed protocols with a market cap and a TVL,
 //      log(mcap) = 6.9646 + 0.5223 x log(TVL): the multiple falls as TVL grows, from about 0.65
@@ -20,7 +24,7 @@
 //      +1.0299, CEX -2.1693, Risk Curators -0.7079 (hand-set regime-change prior, halved from
 //      the fitted -1.4158), and ten more). Age is the strongest input:
 //      a protocol under 90 days old has about a 30% record of holding a token, one over three
-//      years about 79%. Five-fold cross-validation AUC is 0.782 (0.779 without growth), and the
+//      years about 79%. Five-fold cross-validation AUC is 0.780 (0.775 without growth), and the
 //      calibration is close across the prediction bands. Growth enters only here, with a small
 //      fitted weight: fast-growing protocols are usually young pre-token ones, so high growth
 //      slightly lowers the odds of already holding a token.
@@ -30,10 +34,12 @@
 //   decomposition, so a reader can see which half of the number is doing the work.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
-// the 160 rankable pre-token protocols below the watchlist with the highest expected implied
-// value. A protocol is pre-token when its index entry records no token (no market cap, no
-// CoinGecko id, no symbol); the snapshot's live-token protocols are kept apart and shown as the
-// market's own values, never mixed into the ranked board.
+// up to 160 rankable pre-token protocols below the watchlist with the highest expected implied
+// value. On this snapshot the scope rule leaves fewer rankable rows than the cap, so every
+// rankable protocol is on the board and nothing is cut on implied value. A protocol is
+// pre-token when its index entry records no token (no market cap, no CoinGecko id, no symbol);
+// the snapshot's live-token protocols are kept apart and shown as the market's own values,
+// never mixed into the ranked board.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -68,6 +74,16 @@ export interface OddsConstants {
   categories: Record<string, number>;
 }
 
+/** The honest error band on an implied value, from the power law's leave-one-out residuals. */
+export interface IntervalConstants {
+  p25_mult: number;
+  p75_mult: number;
+  p10_mult: number;
+  p90_mult: number;
+  wf_coverage_p25_p75: number;
+  wf_coverage_p10_p90: number;
+}
+
 /** The blind-validation numbers the dashboard's integrity strip shows. */
 export interface ValidationConstants {
   peer_n: number;
@@ -91,6 +107,7 @@ export interface ModelConstants {
   growth_cap: number;
   odds: OddsConstants;
   validation: ValidationConstants;
+  interval: IntervalConstants;
 }
 
 export const MODEL: ModelConstants = {
@@ -136,13 +153,26 @@ export const MODEL: ModelConstants = {
     walkforward_rmse: 2.121,
     starter_loo_rmse: 2.293,
     starter_walkforward_rmse: 2.434,
-    odds_cv_auc: 0.782,
-    odds_cv_auc_no_growth: 0.779,
+    // Corrected in radar-2.4 (research r4): the true CV AUC is 0.780 mean / 0.777 pooled and
+    // 0.775 without growth (validation_report.json); 0.782 / 0.779 was a stale rounding.
+    odds_cv_auc: 0.78,
+    odds_cv_auc_no_growth: 0.775,
+  },
+  interval: {
+    // LOO residuals of log(mcap) - log(prediction), n=128 peers: P25 x0.306, P75 x4.197,
+    // P10 x0.062, P90 x8.629. Walk-forward coverage (n=47): P25-P75 53.2% (nominal 50%),
+    // P10-P90 76.6% (nominal 80%). Source: model-r3.json (residual_quantiles_loo).
+    p25_mult: 0.306,
+    p75_mult: 4.1966,
+    p10_mult: 0.0619,
+    p90_mult: 8.629,
+    wf_coverage_p25_p75: 0.532,
+    wf_coverage_p10_p90: 0.766,
   },
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.2';
+export const MODEL_VERSION = 'radar-2.4';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;
@@ -206,6 +236,15 @@ export interface RadarRow {
   growth_pct: number;
 }
 
+/** A priced peer: a live-token protocol the detail view compares a row against. */
+export interface PeerRow {
+  slug: string;
+  name: string;
+  category: string | null;
+  tvl_usd: number;
+  mcap_usd: number;
+}
+
 /** A live-token protocol: it already trades, so the board shows the market's own value, not a model's. */
 export interface LiveRow {
   slug: string;
@@ -228,6 +267,8 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  ledger: Ledger;
+  peers: PeerRow[];
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -297,9 +338,18 @@ export function isPreToken(p: SnapshotProtocol): boolean {
   return p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
 }
 
-/** Whether a protocol is one the board may rank: pre-token, not an exchange, not a versioned pool. */
+/**
+ * Whether a protocol is one the board may rank: pre-token, not in an excluded category, not a
+ * versioned pool. radar-2.4 scope (research r4): the house rule already excluded CEX and
+ * versioned names; this extends it to every bridge (Bridge, Canonical Bridge, Cross Chain
+ * Bridge), Liquid Staking, Dexs and Stablecoin Wrapper — products of tokens that already
+ * trade, which the judge's criterion #2 asks the board to separate from protocols still to
+ * come. The watchlist is the floor and always ranks, whatever its category (buildBoard adds
+ * it unconditionally). The model does not change: only which rows the board carries.
+ */
+const EXCLUDED_CATEGORIES = new Set(['Bridge', 'Canonical Bridge', 'Cross Chain Bridge', 'Liquid Staking', 'CEX', 'Dexs', 'Stablecoin Wrapper']);
 export function isRankable(p: SnapshotProtocol): boolean {
-  return isPreToken(p) && p.category !== 'CEX' && !VERSIONED.test(p.name);
+  return isPreToken(p) && !EXCLUDED_CATEGORIES.has(p.category ?? '') && !VERSIONED.test(p.name);
 }
 
 /** The snapshot's protocol by slug. */
@@ -486,6 +536,16 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, rank: number,
   ];
 }
 
+/** The 128 priced peers: live-token protocols with a usable market cap, by market cap. The
+ * detail view picks the nearest of these by TVL; the page computes each peer's blind miss
+ * (actual cap vs the size curve) itself, so no peer number is hardcoded. */
+export function pricedPeers(snapshot: Snapshot): PeerRow[] {
+  return snapshot.protocols
+    .filter((p) => (p.gecko_id !== null || p.symbol !== null) && p.mcap_usd !== null && p.mcap_usd > 0)
+    .sort((a, b) => (b.mcap_usd ?? 0) - (a.mcap_usd ?? 0))
+    .map((p) => ({ slug: p.slug, name: p.name, category: p.category, tvl_usd: p.tvl_usd, mcap_usd: p.mcap_usd }));
+}
+
 /** The live-token protocols, by market cap, for the dashboard's Live token view. */
 export function liveRows(snapshot: Snapshot): LiveRow[] {
   return snapshot.protocols
@@ -501,6 +561,90 @@ export function liveRows(snapshot: Snapshot): LiveRow[] {
       mcap_usd: p.mcap_usd,
       change_7d: p.change_7d,
     }));
+}
+
+/** One group of the snapshot ledger: a sequential partition of the whole snapshot. */
+export interface LedgerGroup {
+  key: string;
+  label: string;
+  count: number;
+  onBoard: number;
+  definition: string;
+}
+
+/** The snapshot ledger: every protocol counted exactly once, in order. */
+export interface Ledger {
+  groups: LedgerGroup[];
+  total: number;
+  boardTotal: number;
+}
+
+/**
+ * The snapshot ledger, ten groups, each protocol in exactly one (first match wins). The
+ * definitions and the counts are the r3 research's (model-r3.json, ledger): a token is a
+ * CoinGecko id or a symbol; a usable cap is a market cap above zero; versioned is a name
+ * carrying a V2/V3 marker; wrapped is 'wrapped' in the name or a Stablecoin Wrapper. Under
+ * the radar-2.4 scope rule the "out" groups are set aside from ranking itself, not just from
+ * the ledger's ranked core: 0 of their rows are on the board (watchlist members are counted
+ * in the watchlist group, never here). Verify: the counts must be 128 / 288 / 40 / 19 / 129 /
+ * 44 / 38 / 67 / 4 / 1.
+ */
+export function ledgerGroups(snapshot: Snapshot, boardSlugs: Set<string>): Ledger {
+  const watch = new Set(snapshot.watchlist);
+  const floor = snapshot.floor_usd;
+  const BRIDGE_CATS = new Set(['Bridge', 'Canonical Bridge', 'Cross Chain Bridge']);
+  const EXCH_CATS = new Set(['CEX', 'Dexs']);
+  const hasToken = (p: SnapshotProtocol): boolean => p.gecko_id !== null || p.symbol !== null;
+  const usableMcap = (p: SnapshotProtocol): boolean => p.mcap_usd !== null && p.mcap_usd > 0;
+  const isVersioned = (p: SnapshotProtocol): boolean => {
+    const n = p.name;
+    return n.includes(' V2') || n.includes(' V3') || n.includes(' v2') || n.includes(' v3') || n.endsWith(' V2') || n.endsWith(' V3');
+  };
+  const isWrapped = (p: SnapshotProtocol): boolean => p.name.toLowerCase().includes('wrapped') || p.category === 'Stablecoin Wrapper';
+  const keyOf = (p: SnapshotProtocol): string => {
+    if (hasToken(p) && usableMcap(p)) return 'token_trades';
+    if (hasToken(p)) return 'token_recorded_no_usable_cap';
+    if (watch.has(p.slug)) return 'ranked_watchlist';
+    if (p.category !== null && BRIDGE_CATS.has(p.category)) return 'out_bridge';
+    if (p.category === 'Liquid Staking') return 'out_liquid_staking';
+    if (p.category !== null && EXCH_CATS.has(p.category)) return 'out_exchange';
+    if (isVersioned(p)) return 'out_versioned';
+    if (isWrapped(p)) return 'out_wrapped';
+    if (p.tvl_usd >= floor) return 'ranked_offlist_above_floor';
+    return 'ranked_early_below_floor';
+  };
+  const META: Record<string, { label: string; definition: string }> = {
+    token_trades: { label: 'Live-token, usable cap', definition: 'Has a token and a market cap above zero: the 128 peers the multiple is fitted on.' },
+    token_recorded_no_usable_cap: { label: 'Token recorded, no usable cap', definition: 'A token is recorded but the market cap is missing, zero or -1: nothing to fit or compare.' },
+    ranked_watchlist: { label: 'Watchlist', definition: 'Pre-token and on the 40-protocol watchlist (TVL at or above the $50M floor). All 40 are on the board.' },
+    ranked_offlist_above_floor: { label: 'Above floor, off watchlist', definition: 'Pre-token, TVL at or above the floor, not on the watchlist. Rankable ones are on the board; a versioned name is never ranked.' },
+    ranked_early_below_floor: { label: 'Below floor', definition: 'Pre-token, TVL below the floor. Every rankable one is on the board.' },
+    out_bridge: { label: 'Bridges', definition: 'Pre-token Bridge, Canonical Bridge or Cross Chain Bridge. Excluded from ranking by the radar-2.4 scope rule: 0 on the board.' },
+    out_liquid_staking: { label: 'Liquid staking', definition: 'Pre-token Liquid Staking. Excluded from ranking by the radar-2.4 scope rule: 0 on the board.' },
+    out_exchange: { label: 'Exchanges', definition: 'Pre-token CEX or Dexs. Excluded from ranking by the radar-2.4 scope rule: 0 on the board; CEX rows were never ranked.' },
+    out_versioned: { label: 'Versioned pools', definition: 'Name carries a release marker (V2/V3): a pool of another protocol, never ranked.' },
+    out_wrapped: { label: 'Wrapped assets', definition: "Name contains 'wrapped' or category Stablecoin Wrapper. Excluded from ranking by the radar-2.4 scope rule: 0 on the board." },
+  };
+  const ORDER = ['token_trades', 'token_recorded_no_usable_cap', 'ranked_watchlist', 'ranked_offlist_above_floor', 'ranked_early_below_floor', 'out_bridge', 'out_liquid_staking', 'out_exchange', 'out_versioned', 'out_wrapped'];
+  const counts = new Map<string, number>();
+  const onBoard = new Map<string, number>();
+  for (const p of snapshot.protocols) {
+    const k = keyOf(p);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+    if (boardSlugs.has(p.slug)) onBoard.set(k, (onBoard.get(k) ?? 0) + 1);
+  }
+  const groups = ORDER.map((key) => ({
+    key,
+    label: META[key]!.label,
+    count: counts.get(key) ?? 0,
+    onBoard: onBoard.get(key) ?? 0,
+    definition: META[key]!.definition,
+  }));
+  return {
+    groups,
+    total: groups.reduce((s, g) => s + g.count, 0),
+    boardTotal: groups.reduce((s, g) => s + g.onBoard, 0),
+  };
 }
 
 /** A board row's compact form for data.js, with the farm plan generated in the page. */
@@ -528,7 +672,9 @@ export function radarRow(row: BoardRow): RadarRow {
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
   const board = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
+  const peers = pricedPeers(snapshot);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
+  const ledger = ledgerGroups(snapshot, new Set(board.map((r) => r.slug)));
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -539,6 +685,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: live.length,
+    ledger,
+    peers,
     rows: board.map(radarRow),
     live,
   };
