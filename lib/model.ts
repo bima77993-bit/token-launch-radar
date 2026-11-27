@@ -1,10 +1,10 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.4 — the radar-2.2 model exactly (same coefficients, same implied value per
-// protocol), with a new board scope and presentation levers: the board now excludes
-// bridge, liquid-staking, exchange and wrapped-asset categories by rule (radar-4 scope
-// research), plus a P25-P75 interval on every implied value and a coverage ledger of the
-// 758-protocol snapshot. The model itself is the radar-2.1 base fit, with one hand-set change:
+// radar-2.5 — the radar-2.2 model exactly (same coefficients, same implied value per
+// protocol), with the radar-2.4 board scope and two new cover levers: the odds Brier
+// (0.192 vs base 0.248, 5-fold CV, recomputed with brier_recompute_r4.py) in the KPI
+// strip and a per-term ablation table on the cover. The model itself is the radar-2.1
+// base fit, with one hand-set change:
 // the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
 // launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
 // numbers below describe the radar-2.1 base fit; re-validation of the variant is pending.
@@ -172,7 +172,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.4';
+export const MODEL_VERSION = 'radar-2.5';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;

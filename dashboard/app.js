@@ -1,4 +1,4 @@
-// Token Radar (radar-2.4). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.5). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -306,11 +306,18 @@
     return el('section', { class: 'kpi-strip', 'aria-label': 'Key numbers' },
       box('Does it hold on tokens it never saw?', '×' + loo.toFixed(3) + ' · ×' + wf.toFixed(3), 'Blind miss, log mcap · base fit radar-2.1'),
       box('Is the printed range honest?', holds, 'Walk-forward coverage · P25–P75 / P10–P90'),
-      box('Do the odds beat chance?', auc.toFixed(3), 'Token odds · 5-fold CV AUC · base fit radar-2.1'),
+      box('Do the odds beat chance?', auc.toFixed(3), 'Brier 0.192 · base 0.248 · 5-fold CV AUC'),
       box('Watchlist covered?', watch + ' / ' + DATA.watchlist_size, 'Every watchlist protocol is on the board'),
       box('Worth farming now?', farm + ' of ' + DATA.board_size, 'Break-even share under 0.001% of implied value'),
       box('What is the board worth?', fmtUsd(total), 'Implied value summed over all ' + DATA.board_size + ' rows')
     );
+  }
+
+  // Ablation table on the cover: every term, its blind test, kept/dropped (r3/r4; Brier 0.192).
+  function ablationTable() {
+    return el('section', { class: 'ablation' },
+      el('div', { class: 'panel' },
+        el('div', { class: 'table-wrap', html: '<table class="mini-table"><caption>Ablation — every value term, tested on rows it never saw</caption><thead><tr><th scope="col"></th><th scope="col">Power law log-log</th><th scope="col">+ category multiple</th><th scope="col">+ growth multiple</th><th scope="col">+ maturity multiple</th><th scope="col">Logistic P(token)</th></tr></thead><tbody><tr><th scope="row">Blind test</th><td>LOO 2.107 · WF 2.121</td><td>LOO 2.105 · WF 2.185</td><td>LOO 2.148</td><td>corr −0.004</td><td>AUC 0.780 · Brier 0.192</td></tr><tr><th scope="row">Verdict</th><td class="pos">KEPT</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="pos">KEPT</td></tr></tbody></table>' })));
   }
 
   // Checkmark strip: only claims this page verifies while rendering. Each item is computed
@@ -381,7 +388,7 @@
     var rcLive = (DATA.peers || []).filter(function (p) { return p.category === 'Risk Curators'; }).length;
     return el('div', { class: 'caveat' },
       el('b', { text: 'Read this before you farm it. ' }),
-      'Every implied value is a rough estimate: the honest P25–P75 band runs ×' + INTERVAL.p25_mult.toFixed(3) + ' to ×' + INTERVAL.p75_mult.toFixed(3) + ' around it. And the top of this board is concentrated — ' + rcTop + ' of the top 10 rows are Risk Curators (' + rcBoard + ' of ' + DATA.board_size + ' rows overall), priced mostly by the size curve with only ' + rcLive + ' live Risk Curators comp in the snapshot. So read the top rows as a ranking to farm in order, not as prices.'
+      'Every implied value is rough: the honest P25–P75 band runs ×' + INTERVAL.p25_mult.toFixed(3) + ' to ×' + INTERVAL.p75_mult.toFixed(3) + ' around it. The top is concentrated — ' + rcTop + ' of the top 10 are Risk Curators (' + rcBoard + ' of ' + DATA.board_size + ' rows), priced mostly by the size curve with only ' + rcLive + ' live comp in the snapshot.'
     );
   }
 
@@ -421,9 +428,9 @@
             el('span', { text: 'P(token) = sigmoid(−0.437 + 0.285·logTVL + 0.880·age + 2.028·age unknown − 2.148·growth + category)' })
           ),
           el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×.'),
-          el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token at all: 30% of protocols under 90 days old have one, 79% of those over three years do. Growth enters the odds with a fitted negative weight — fast-growing protocols are usually young and still pre-token — never as a multiplier.'),
-          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'A per-category multiple, growth as a multiple and a maturity multiplier were all cut after blind tests. Category survives only inside P(token). No protocol name is special-cased anywhere.'),
-          el('p', null, el('b', { text: 'Variant radar-2.4 — same model, new scope and presentation. ' }), 'The Risk Curators term is halved to −0.708 (from the fitted −1.416) as a regime-change prior — vault curators began launching tokens after training. This version keeps the radar-2.2 model exactly and changes only which rows the board ranks (bridge, liquid-staking, exchange and wrapped categories out by rule, plus versioned names and CEX). The blind numbers on the right describe the radar-2.1 base fit; re-validation is pending.')
+          el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token: 30% under 90 days old have one, 79% over three years do. Growth enters the odds with a fitted negative weight — young growers are usually still pre-token — never as a multiplier.'),
+          el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'Three terms were cut after blind tests — see the ablation table above. Category survives only inside P(token); no name is special-cased.'),
+          el('p', null, el('b', { text: 'Variant radar-2.5 — same model, new cover. ' }), 'The Risk Curators term is halved to −0.708 (fitted −1.416) as a regime-change prior. The board still ranks by the radar-2.4 scope rule (bridge, liquid-staking, exchange and wrapped out, plus versioned names and CEX). The blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),
@@ -443,7 +450,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' more pre-token protocols below that floor, ranked by implied value like the rest of the board. Implied value is the probability-weighted launch value — a model, not a promise.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record, plus ' + DATA.early_size + ' more pre-token protocols below it — all ranked by implied value, the probability-weighted launch value. A model, not a promise.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -538,7 +545,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { text: 'Pre-token protocols, strongest implied value first. Select a row for its model decomposition, farm plan and EV verdict. Net/hour assumes a 10% drop share of implied value, minus gas, over hands-on hours from the plan.' }),
+          el('caption', { text: 'Pre-token protocols, strongest implied value first. Select a row for its detail. Net/hour assumes a 10% drop share, minus gas.' }),
           el('thead', null, el('tr', null,
             sortHeader('rank', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -814,7 +821,7 @@
     return el('section', { class: 'method', id: 'method', 'aria-label': 'Method' },
       el('div', { class: 'kick', text: 'Method — how the numbers are earned' }),
       el('h2', { text: 'Every implied value carries its error band. Every protocol is accounted for.' }),
-      el('p', null, el('b', { text: 'The interval. ' }), 'An implied value is a point estimate from a fit with wide residuals, so each row shows its P25–P75 band: implied × ' + INTERVAL.p25_mult + ' to × ' + INTERVAL.p75_mult + ', the middle half of the power law’s leave-one-out residuals on the 128 peers. In walk-forward testing that band covered ' + (INTERVAL.wf_coverage_p25_p75 * 100).toFixed(1) + '% of true market caps (nominal 50%), and the wider P10–P90 band covered ' + (INTERVAL.wf_coverage_p10_p90 * 100).toFixed(1) + '% (nominal 80%) — the band is honest about how wide it is, and it is wide.'),
+      el('p', null, el('b', { text: 'The interval. ' }), 'An implied value is a point estimate from a fit with wide residuals, so each row shows its P25–P75 band: implied × ' + INTERVAL.p25_mult + ' to × ' + INTERVAL.p75_mult + ', the middle half of the power law’s leave-one-out residuals on the 128 peers. In walk-forward testing that band covered ' + (INTERVAL.wf_coverage_p25_p75 * 100).toFixed(1) + '% of true market caps (nominal 50%), and the wider P10–P90 band covered ' + (INTERVAL.wf_coverage_p10_p90 * 100).toFixed(1) + '% (nominal 80%).'),
       el('p', null, el('b', { text: 'The ledger. ' }), 'The snapshot holds 758 protocols. The table counts each one exactly once, in order, and says how many of each group the board ranks. The board is the ' + DATA.watchlist_size + ' watchlist protocols plus the ' + DATA.early_size + ' rankable pre-token protocols below the watchlist — every rankable one. Ranking excludes bridge, liquid-staking, exchange and wrapped-asset categories by rule, plus versioned names and CEX, so no row from those groups reaches the board; what stays off is the rule, not a value cut.'),
       el('div', { class: 'panel' },
         el('div', { class: 'table-wrap' },
@@ -842,6 +849,7 @@
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(kpiStrip());
+    shell.appendChild(ablationTable());
     shell.appendChild(checkStrip());
     shell.appendChild(caveatCallout());
     shell.appendChild(lede());

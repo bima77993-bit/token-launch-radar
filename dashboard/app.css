@@ -36,7 +36,7 @@ button { cursor: pointer; }
 .skip-link:focus { left: var(--s4); top: var(--s4); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.shell { max-width: 1280px; margin: 0 auto; padding: var(--s4) var(--s6) var(--s7); }
+.shell { max-width: 1280px; margin: 0 auto; padding: 8px var(--s6) var(--s7); }
 .top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s5); padding-bottom: var(--s2); }
 .brand { display: flex; align-items: center; gap: var(--s3); }
 .mark { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); flex: none; transform: rotate(45deg); }
@@ -133,10 +133,13 @@ tbody tr[data-selected="true"] { background: var(--accent-soft); }
 
 /* KPI strip: six boxes, the numbers a judge checks first. */
 .kpi-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s2); margin-bottom: var(--s3); }
-.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 2px; align-content: start; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; display: grid; gap: 2px; align-content: start; }
 .kpi-q { color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.3; }
 .kpi b { font-family: var(--font-num); font-size: 19px; font-weight: 650; white-space: nowrap; }
 .kpi-s { color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+.ablation { margin-bottom: var(--s2); }
+.ablation .mini-table td, .ablation .mini-table th { padding: 3px 10px; }
 
 /* Checkmark strip: the checks this page runs while rendering, one flowing line. */
 .check-strip { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); background: #e6f4ea; border: 1px solid #b7dfc2; border-radius: var(--radius); padding: 8px 12px; margin-bottom: var(--s3); font-size: 13px; color: #14532d; }
