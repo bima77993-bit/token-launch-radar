@@ -1,9 +1,10 @@
 // A working token-radar-01 entry (Node 22, standard library only).
 //
-// radar-2.6: the radar-2.2 model unchanged; the board keeps the radar-2.4 scope rule,
-// and the dashboard adds the odds Brier to the KPI strip and a per-term ablation table
-// on the cover, plus verdict + $/hour columns, sensitivity and nearest-peer detail,
-// an honest-caveat callout, bootstrap rank ranges and a net-by-deposit matrix.
+// radar-2.7: the radar-2.2 model unchanged; the board keeps the radar-2.4 scope rule,
+// and the dashboard adds the odds Brier to the KPI strip, a per-term ablation table and
+// a blind scoreboard on the cover, plus verdict + $/hour columns, sensitivity and
+// nearest-peer detail, an honest-caveat callout, bootstrap rank ranges and a
+// net-by-deposit matrix.
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
 // pre-token protocol with the radar-2.4 model in lib/model.ts, writes the ranked board to

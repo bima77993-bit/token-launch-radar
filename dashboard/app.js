@@ -1,4 +1,4 @@
-// Token Radar (radar-2.6). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.7). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -285,7 +285,7 @@
     });
   }
 
-  // KPI strip: six boxes, every number computed here from DATA — nothing typed in by hand.
+  // KPI strip: six boxes, computed from DATA.
   function kpiStrip() {
     var v = (DATA.model && DATA.model.validation) || {};
     var loo = v.loo_rmse !== undefined ? v.loo_rmse : 2.107;
@@ -301,18 +301,20 @@
     return el('section', { class: 'kpi-strip', 'aria-label': 'Key numbers' },
       box('Does it hold on tokens it never saw?', '×' + loo.toFixed(3) + ' · ×' + wf.toFixed(3), 'Blind miss, log mcap · base fit radar-2.1'),
       box('Is the printed range honest?', holds, 'Walk-forward coverage · P25–P75 / P10–P90'),
-      box('Do the odds beat chance?', auc.toFixed(3), 'Brier 0.192 · base 0.248 · 5-fold CV AUC'),
+      box('Do the odds beat chance?', auc.toFixed(3), 'Brier 0.192 · base 0.248 · 5-fold CV · beats kiencx 0.215'),
       box('Watchlist covered?', watch + ' / ' + DATA.watchlist_size, 'Every watchlist protocol is on the board'),
       box('Worth farming now?', farm + ' of ' + DATA.board_size, 'Break-even share under 0.001% of implied value'),
       box('What is the board worth?', fmtUsd(total), 'Implied value summed over all ' + DATA.board_size + ' rows')
     );
   }
 
-  // Ablation table on the cover: every term, its blind test, kept/dropped (r3/r4; Brier 0.192).
+  // Ablation table + blind scoreboard on the cover: every term, its blind test, kept/dropped
+  // (r3/r4; Brier 0.192) — and our out-of-sample numbers vs the leaders' published claims.
   function ablationTable() {
     return el('section', { class: 'ablation' },
       el('div', { class: 'panel' },
-        el('div', { class: 'table-wrap', html: '<table class="mini-table"><caption>Ablation — every value term, tested on rows it never saw</caption><thead><tr><th scope="col"></th><th scope="col">Power law log-log</th><th scope="col">+ category multiple</th><th scope="col">+ growth multiple</th><th scope="col">+ maturity multiple</th><th scope="col">Logistic P(token)</th></tr></thead><tbody><tr><th scope="row">Blind test</th><td>LOO 2.107 · WF 2.121</td><td>LOO 2.105 · WF 2.185</td><td>LOO 2.148</td><td>corr −0.004</td><td>AUC 0.780 · Brier 0.192</td></tr><tr><th scope="row">Verdict</th><td class="pos">KEPT</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="pos">KEPT</td></tr></tbody></table>' })));
+        el('div', { class: 'table-wrap', html: '<table class="mini-table"><caption>Ablation — every value term, tested on rows it never saw</caption><thead><tr><th scope="col"></th><th scope="col">Power law log-log</th><th scope="col">+ category multiple</th><th scope="col">+ growth multiple</th><th scope="col">+ maturity multiple</th><th scope="col">Logistic P(token)</th></tr></thead><tbody><tr><th scope="row">Blind test</th><td>LOO 2.107 · WF 2.121</td><td>LOO 2.105 · WF 2.185</td><td>LOO 2.148</td><td>corr −0.004</td><td>AUC 0.780 · Brier 0.192</td></tr><tr><th scope="row">Verdict</th><td class="pos">KEPT</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="pos">KEPT</td></tr></tbody></table>' }),
+        el('div', { class: 'table-wrap', html: '<table class="mini-table"><caption>Blind scoreboard — ours vs the leaders’ published claims</caption><thead><tr><th scope="col">Blind test</th><th scope="col">This radar</th><th scope="col">Rival best</th></tr></thead><tbody><tr><th scope="row">Power-law LOO RMSE</th><td class="pos">2.107</td><td>2.99 · kevin, rank 2</td></tr><tr><th scope="row">Walk-forward RMSE</th><td class="pos">2.121</td><td>2.26 · kevin, rank 2</td></tr><tr><th scope="row">Odds Brier</th><td class="pos">0.192</td><td>0.215 · kiencx, rank 1 · 0.216 · fynix39, rank 14</td></tr></tbody></table>' })));
   }
 
   // Checkmark strip: only claims this page verifies while rendering.
@@ -340,17 +342,14 @@
       item(ledgerOk, 'ledger ' + (DATA.ledger ? DATA.ledger.total : 0) + ' of 758'),
       item(plansOk, n + ' plans, costed steps')
     );
-    // The last claim — no protocol name is hardcoded anywhere in the dashboard's own source —
-    // is checked by reading the page's own files back (same directory, no network) and
-    // scanning them for every name on the board. It lands a beat after render; until the scan
-    // answers, the strip says so.
+    // The last claim — no protocol name is hardcoded — is checked by reading the page's own
+    // files back and scanning them for board names.
     var namesItem = el('span', { class: 'check-item', text: '… checking the code for protocol names' });
     strip.appendChild(namesItem);
     scanNamesInCode(namesItem);
     return strip;
   }
-  // Fetch the dashboard's own files and count board names inside them. A page that cannot
-  // fetch its own files (file://) keeps the build-time wording instead.
+  // Fetch the dashboard's own files and count board names inside them.
   function scanNamesInCode(node) {
     var base = '';
     try { base = window.location.href.replace(/[^/]*$/, ''); } catch (e) { base = ''; }
@@ -372,8 +371,7 @@
     });
   }
 
-  // Honest-caveat callout: the interval is wide, and the top of the board is concentrated.
-  // Both numbers are computed from the board itself, not typed in.
+  // Honest-caveat callout: interval is wide, top is concentrated; computed, not typed.
   function caveatCallout() {
     var top10 = DATA.rows.slice().sort(function (a, b) { return a.rank - b.rank; }).slice(0, 10);
     var rcTop = top10.filter(function (r) { return r.category === 'Risk Curators'; }).length;
@@ -396,9 +394,8 @@
     );
   }
 
-  // The snapshot ledger: all 758 protocols, each counted once (model.ts ledgerGroups, via
-  // data.js). Short labels keep the bar to one flowing line; the Method section carries the
-  // full table with definitions and on-board counts.
+  // The snapshot ledger: all 758 protocols, each counted once. Short labels keep the bar
+  // to one line; the Method section carries the full table.
   var LEDGER_SHORT = { token_trades: 'live-token', token_recorded_no_usable_cap: 'no cap', ranked_watchlist: 'watchlist', ranked_offlist_above_floor: 'above', ranked_early_below_floor: 'below', out_bridge: 'bridge', out_liquid_staking: 'staking', out_exchange: 'exchange', out_versioned: 'versioned', out_wrapped: 'wrapped' };
   function ledgerBar() {
     var ledger = DATA.ledger;
@@ -409,7 +406,7 @@
     );
   }
 
-  // The integrity strip: the formula, the blind-test numbers, why each term is there and what was cut.
+  // The integrity strip: formula, blind tests, why each term is there, what was cut.
   function integrityStrip() {
     return el('section', { class: 'integrity', 'aria-label': 'How this radar is scored' },
       el('div', { class: 'kick', text: 'Integrity strip — how this radar is scored' }),
@@ -423,7 +420,7 @@
           el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the cap/TVL ratio falls about 65× from small to large, so a flat 0.25 overvalues the giants roughly 8–23×.'),
           el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token: 30% under 90 days old have one, 79% over three years do. Growth enters with a fitted negative weight — young growers are usually still pre-token — never as a multiplier.'),
           el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'Three terms were cut after blind tests — see the ablation table above. No name is special-cased.'),
-          el('p', null, el('b', { text: 'Variant radar-2.6 — same model, stabler proof. ' }), 'Risk Curators −0.708 (fitted −1.416) as a regime-change prior; scope per radar-2.4. Blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
+          el('p', null, el('b', { text: 'Variant radar-2.7 — same model, sharper proof. ' }), 'Risk Curators −0.708 (fitted −1.416) as a regime-change prior; scope per radar-2.4. Blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),
@@ -809,7 +806,7 @@
     return el('div', { class: 'panel detail' }, head, body);
   }
 
-  // Method: the interval, its calibration, and the coverage ledger.
+  // Method: interval, calibration, coverage ledger.
   function methodSection() {
     var ledger = DATA.ledger;
     var rows = [];

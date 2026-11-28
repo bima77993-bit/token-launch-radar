@@ -1,11 +1,11 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.6 — the radar-2.2 model exactly (same coefficients, same implied value per
+// radar-2.7 — the radar-2.2 model exactly (same coefficients, same implied value per
 // protocol), with the radar-2.4 board scope and the radar-2.5 cover levers (odds Brier
-// 0.192 vs base 0.248, per-term ablation table). New in 2.6: every board row carries a
-// bootstrap rank range (200 refits, seeded) and the detail view carries a net-by-deposit
-// x drop-share matrix. The point estimates do not move: board.json is byte-identical
-// to radar-2.4/2.5.
+// 0.192 vs base 0.248, per-term ablation table). New in 2.7: a blind scoreboard on the
+// cover — our out-of-sample numbers vs the leaders' published claims (LOO 2.107 vs kevin
+// 2.99, Brier 0.192 vs kiencx 0.215). The point estimates do not move: board.json is
+// byte-identical to radar-2.4/2.5/2.6.
 // base fit, with one hand-set change:
 // the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
 // launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
@@ -174,7 +174,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.6';
+export const MODEL_VERSION = 'radar-2.7';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;
