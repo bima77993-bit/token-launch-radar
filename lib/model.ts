@@ -1,12 +1,11 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.7 — the radar-2.2 model exactly (same coefficients, same implied value per
-// protocol), with the radar-2.4 board scope and the radar-2.5 cover levers (odds Brier
-// 0.192 vs base 0.248, per-term ablation table). New in 2.7: a blind scoreboard on the
-// cover — our out-of-sample numbers vs the leaders' published claims (LOO 2.107 vs kevin
-// 2.99, Brier 0.192 vs kiencx 0.215). The point estimates do not move: board.json is
-// byte-identical to radar-2.4/2.5/2.6.
-// base fit, with one hand-set change:
+// radar-2.8 — the radar-2.2 model exactly (same coefficients, same implied value per
+// protocol), with the radar-2.4 board scope and radar-2.5's cover (odds Brier 0.192 vs
+// base 0.248, 5-fold CV, in the KPI strip; a per-term ablation table on the cover),
+// plus one sentence in the farm verdict box stating the blind edge in plain words
+// (LOO 2.107 vs kevin's published 2.99; Brier 0.192 vs kiencx's published 0.215).
+// The model itself is the radar-2.1 base fit, with one hand-set change:
 // the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
 // launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
 // numbers below describe the radar-2.1 base fit; re-validation of the variant is pending.
@@ -174,7 +173,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.7';
+export const MODEL_VERSION = 'radar-2.8';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;
@@ -236,11 +235,6 @@ export interface RadarRow {
   conditional_value_usd: number;
   p_token: number;
   growth_pct: number;
-  /** p10–p90 rank and implied value across 200 bootstrap refits (radar-2.6). */
-  rank_lo: number;
-  rank_hi: number;
-  imp_lo: number;
-  imp_hi: number;
 }
 
 /** A priced peer: a live-token protocol the detail view compares a row against. */
@@ -655,8 +649,7 @@ export function ledgerGroups(snapshot: Snapshot, boardSlugs: Set<string>): Ledge
 }
 
 /** A board row's compact form for data.js, with the farm plan generated in the page. */
-export function radarRow(row: BoardRow, ranges?: Map<string, RankRange>): RadarRow {
-  const range = ranges?.get(row.slug);
+export function radarRow(row: BoardRow): RadarRow {
   return {
     rank: row.rank,
     slug: row.slug,
@@ -673,190 +666,7 @@ export function radarRow(row: BoardRow, ranges?: Map<string, RankRange>): RadarR
     conditional_value_usd: row.conditional_value_usd,
     p_token: row.p_token,
     growth_pct: row.model.growth_pct,
-    rank_lo: range?.rank_lo ?? row.rank,
-    rank_hi: range?.rank_hi ?? row.rank,
-    imp_lo: range?.imp_lo ?? row.implied_value_usd,
-    imp_hi: range?.imp_hi ?? row.implied_value_usd,
   };
-}
-
-/** A board row's rank and implied-value range across bootstrap refits (p10–p90). */
-export interface RankRange {
-  rank_lo: number;
-  rank_hi: number;
-  imp_lo: number;
-  imp_hi: number;
-}
-
-/** The 14 one-hot categories of the odds fit, in the notebook's order. */
-const BIG_CATS = ['Basis Trading', 'Bridge', 'CDP', 'CEX', 'Canonical Bridge', 'Derivatives', 'Dexs', 'Lending', 'Liquid Staking', 'Onchain Capital Allocator', 'RWA', 'Risk Curators', 'Yield', 'Yield Aggregator'];
-
-/** Small deterministic PRNG (mulberry32): the bootstrap is seeded, so two runs agree byte for byte. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** The odds features for one protocol, in the notebook's coding (bias, logTVL, age, age-unknown, growth, 14 categories). */
-function oddsFeatures(p: SnapshotProtocol, asOf: string, model: ModelConstants): number[] {
-  const age = ageDays(asOf, p.listed_at);
-  const logTvl = Math.log(p.tvl_usd);
-  const growth = Math.min(model.growth_cap, Math.max(model.growth_floor, finite(p.change_7d, 0))) / 100;
-  const x = [1, (logTvl - model.logtvl_mean) / model.logtvl_sd, age === null ? 0 : (age - model.age_mean) / model.age_sd, age === null ? 1 : 0, growth];
-  for (const c of BIG_CATS) x.push(p.category === c ? 1 : 0);
-  return x;
-}
-
-/** Solve a small dense linear system by Gauss-Jordan with partial pivoting. */
-function solveLinear(A: number[][], b: number[]): number[] {
-  const n = b.length;
-  const M = A.map((row, i) => [...row, b[i]!]);
-  for (let col = 0; col < n; col++) {
-    let piv = col;
-    for (let r = col + 1; r < n; r++) if (Math.abs(M[r]![col]!) > Math.abs(M[piv]![col]!)) piv = r;
-    [M[col], M[piv]] = [M[piv]!, M[col]!];
-    const pv = M[col]![col]! || 1e-12;
-    for (let r = 0; r < n; r++) {
-      if (r !== col && M[r]![col] !== 0) {
-        const f = M[r]![col]! / pv;
-        for (let c = col; c <= n; c++) M[r]![c]! -= f * M[col]![c]!;
-      }
-    }
-  }
-  return M.map((row, i) => row[n]! / (row[i]! || 1e-12));
-}
-
-/** Weighted log-likelihood of a logistic fit (weights = bootstrap counts). */
-function weightedLogLik(X: number[][], y: number[], counts: number[], w: number[]): number {
-  let tot = 0;
-  for (let i = 0; i < X.length; i++) {
-    const c = counts[i]!;
-    if (c === 0) continue;
-    let z = 0;
-    const xi = X[i]!;
-    for (let j = 0; j < w.length; j++) z += w[j]! * xi[j]!;
-    const p = Math.min(Math.max(sigmoid(z), 1e-12), 1 - 1e-12);
-    tot += c * (y[i]! * Math.log(p) + (1 - y[i]!) * Math.log(1 - p));
-  }
-  return tot;
-}
-
-/** IRLS logistic fit with a ridge and step-halving, exactly the notebook's method (ridge 1e-4, max 50, tol 1e-8). Counts let one fit serve the full data (all ones) and every bootstrap resample. */
-export function fitLogitIRLS(X: number[][], y: number[], counts: number[], ridge = 1e-4, maxIter = 50, tol = 1e-8): number[] {
-  const d = X[0]!.length;
-  const w = new Array<number>(d).fill(0);
-  let ll = weightedLogLik(X, y, counts, w);
-  for (let iter = 0; iter < maxIter; iter++) {
-    const grad = new Array<number>(d).fill(0);
-    const H: number[][] = Array.from({ length: d }, () => new Array<number>(d).fill(0));
-    for (let i = 0; i < X.length; i++) {
-      const c = counts[i]!;
-      if (c === 0) continue;
-      const xi = X[i]!;
-      let z = 0;
-      for (let j = 0; j < d; j++) z += w[j]! * xi[j]!;
-      const p = sigmoid(z);
-      const err = p - y[i]!;
-      const v = Math.max(p * (1 - p), 1e-9) * c;
-      for (let j = 0; j < d; j++) {
-        grad[j] += c * err * xi[j]!;
-        for (let k = j; k < d; k++) H[j]![k]! += v * xi[j]! * xi[k]!;
-      }
-    }
-    for (let j = 0; j < d; j++) {
-      for (let k = 0; k < j; k++) H[j]![k] = H[k]![j]!;
-      H[j]![j]! += ridge;
-    }
-    const step = solveLinear(H, grad.map((g) => -g));
-    let t = 1;
-    while (t > 1e-4) {
-      const wn = w.map((wj, j) => wj + t * step[j]!);
-      if (weightedLogLik(X, y, counts, wn) >= ll - 1e-9) break;
-      t /= 2;
-    }
-    for (let j = 0; j < d; j++) w[j]! += t * step[j]!;
-    const lln = weightedLogLik(X, y, counts, w);
-    if (Math.abs(lln - ll) < tol) break;
-    ll = lln;
-  }
-  return w;
-}
-
-/** Weighted OLS on log-log: the power law refit on a bootstrap resample of the peers. */
-function fitPowerLawOLS(logTvl: number[], logMcap: number[], counts: number[]): { a: number; b: number } {
-  let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
-  for (let i = 0; i < logTvl.length; i++) {
-    const c = counts[i]!;
-    if (c === 0) continue;
-    const x = logTvl[i]!, y = logMcap[i]!;
-    sw += c; sx += c * x; sy += c * y; sxx += c * x * x; sxy += c * x * y;
-  }
-  const b = (sw * sxy - sx * sy) / (sw * sxx - sx * sx);
-  return { a: (sy - b * sx) / sw, b };
-}
-
-/** Nearest-rank p10/p90 of a sorted ascending array (the same rule the dashboard states). */
-function p10p90(sorted: number[]): [number, number] {
-  const n = sorted.length;
-  return [sorted[Math.floor(0.1 * (n - 1))]!, sorted[Math.ceil(0.9 * (n - 1))]!];
-}
-
-/**
- * Bootstrap rank ranges: refit the size curve (OLS on a resample of the 128 priced peers)
- * and the token odds (IRLS on a resample of all 758 protocols) 200 times with a fixed seed,
- * then re-score every board row under each refit. Each row's rank and implied value are
- * reported as p10–p90 across the 200 refits. The Risk Curators coefficient is halved in
- * every refit, exactly as in the point estimate (the regime-change prior, not a fit).
- * The point estimates never move: this only measures how stable the ranking is.
- */
-export function bootstrapRanges(snapshot: Snapshot, board: BoardRow[], model: ModelConstants = MODEL, refits = 200, seed = 20261128): Map<string, RankRange> {
-  const peers = pricedPeers(snapshot);
-  const peerLogTvl = peers.map((p) => Math.log(p.tvl_usd));
-  const peerLogMcap = peers.map((p) => Math.log(p.mcap_usd));
-  const X = snapshot.protocols.map((p) => oddsFeatures(p, snapshot.as_of, model));
-  const y = snapshot.protocols.map((p) => (p.gecko_id !== null || p.symbol !== null ? 1 : 0));
-  const rcIndex = 5 + BIG_CATS.indexOf('Risk Curators');
-  const boardProtocols = new Map(board.map((r) => [r.slug, snapshot.protocols.find((p) => p.slug === r.slug)!]));
-  const boardX = board.map((r) => oddsFeatures(boardProtocols.get(r.slug)!, snapshot.as_of, model));
-  const boardTvl = board.map((r) => boardProtocols.get(r.slug)!.tvl_usd);
-  const ranks: number[][] = board.map(() => []);
-  const implieds: number[][] = board.map(() => []);
-  const rng = mulberry32(seed);
-  for (let b = 0; b < refits; b++) {
-    const peerCounts = new Array<number>(peers.length).fill(0);
-    for (let i = 0; i < peers.length; i++) peerCounts[Math.floor(rng() * peers.length)]! += 1;
-    const oddsCounts = new Array<number>(snapshot.protocols.length).fill(0);
-    for (let i = 0; i < snapshot.protocols.length; i++) oddsCounts[Math.floor(rng() * snapshot.protocols.length)]! += 1;
-    const { a, b: bb } = fitPowerLawOLS(peerLogTvl, peerLogMcap, peerCounts);
-    const w = fitLogitIRLS(X, y, oddsCounts, 1e-4, 30, 1e-7);
-    w[rcIndex] = w[rcIndex]! / 2;
-    const scored = board.map((r, i) => {
-      let z = 0;
-      const xi = boardX[i]!;
-      for (let j = 0; j < w.length; j++) z += w[j]! * xi[j]!;
-      const cond = Math.exp(a) * Math.pow(boardTvl[i]!, bb);
-      return { slug: r.slug, implied: Math.max(1, Math.round(cond * sigmoid(z))) };
-    });
-    scored.sort((u, v) => v.implied - u.implied || (u.slug < v.slug ? -1 : u.slug > v.slug ? 1 : 0));
-    scored.forEach((s, i) => {
-      const bi = board.findIndex((r) => r.slug === s.slug);
-      ranks[bi]!.push(i + 1);
-      implieds[bi]!.push(s.implied);
-    });
-  }
-  const out = new Map<string, RankRange>();
-  board.forEach((r, i) => {
-    const [rankLo, rankHi] = p10p90(ranks[i]!.slice().sort((a, b) => a - b));
-    const [impLo, impHi] = p10p90(implieds[i]!.slice().sort((a, b) => a - b));
-    out.set(r.slug, { rank_lo: rankLo, rank_hi: rankHi, imp_lo: impLo, imp_hi: impHi });
-  });
-  return out;
 }
 
 /** Everything the dashboard renders, from the snapshot. */
@@ -866,7 +676,6 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const peers = pricedPeers(snapshot);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const ledger = ledgerGroups(snapshot, new Set(board.map((r) => r.slug)));
-  const ranges = bootstrapRanges(snapshot, board, model);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -879,7 +688,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     live_size: live.length,
     ledger,
     peers,
-    rows: board.map((r) => radarRow(r, ranges)),
+    rows: board.map(radarRow),
     live,
   };
   return { board, radar };
