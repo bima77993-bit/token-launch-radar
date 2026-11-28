@@ -1,11 +1,12 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.9 — the radar-2.2 model exactly (same coefficients, same implied value per
-// protocol), with the radar-2.4 board scope and radar-2.5's cover, plus a one-line cover
-// audit strip in the header (snapshot, 758 audited, 186 ranked, 40/40 watchlist, LOO,
-// WF, Brier, board sha). The board stays 186 rows: ranking all 758 by implied value
-// would put listed giants on top (binance-cex $382M, lido $214M, wbtc $133M — 108 rows
-// above the rank-10 value), the #1 board's weakness radar-2.4 fixed. Top 10 unchanged.
+// radar-2.10 — the radar-2.2 model exactly (same coefficients, same implied value per
+// protocol), with the radar-2.4 board scope and radar-2.9's cover (audit strip in the
+// header), plus the farm verdict as a net $/hour headline in the KPI strip: the top
+// farm's net per hour (10% drop share, gas in). The board stays 186 rows: ranking all
+// 758 by implied value would put listed giants on top (binance-cex $382M, lido $214M,
+// wbtc $133M — 108 rows above the rank-10 value), the #1 board's weakness radar-2.4
+// fixed. Top 10 unchanged.
 // The model itself is the radar-2.1 base fit, with one hand-set change:
 // the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
 // launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
@@ -176,7 +177,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.9';
+export const MODEL_VERSION = 'radar-2.10';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;

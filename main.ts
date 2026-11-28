@@ -1,11 +1,10 @@
 // A working token-radar-01 entry (Node 22, standard library only).
 //
-// radar-2.9: the radar-2.2 model unchanged; the board keeps the radar-2.4 scope rule
-// (186 rows, top 10 unchanged), and the dashboard is radar-2.5's cover plus a one-line
-// cover audit strip in the header (snapshot, 758 audited, 186 ranked, 40/40 watchlist,
-// LOO, WF, Brier, board sha) and one sentence in the farm verdict box stating the blind
-// edge in plain words. Verdict + $/hour columns, sensitivity and nearest-peer detail,
-// and an honest-caveat callout are unchanged.
+// radar-2.10: the radar-2.2 model unchanged; the board keeps the radar-2.4 scope rule
+// (186 rows, top 10 unchanged), and the dashboard is radar-2.9's cover plus the farm
+// verdict as a net $/hour headline in the KPI strip (top farm's net per hour, 10% drop
+// share, gas in). Verdict + $/hour columns, sensitivity and nearest-peer detail, the
+// cover audit strip and the blind-edge sentence in the farm verdict box are unchanged.
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
 // pre-token protocol with the radar-2.4 model in lib/model.ts, writes the ranked board to

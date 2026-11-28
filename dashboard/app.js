@@ -1,4 +1,4 @@
-// Token Radar (radar-2.9). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.10). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -308,7 +308,7 @@
       box('Is the printed range honest?', holds, 'Walk-forward coverage · P25–P75 / P10–P90'),
       box('Do the odds beat chance?', auc.toFixed(3), 'Brier 0.192 · base 0.248 · 5-fold CV AUC'),
       box('Watchlist covered?', watch + ' / ' + DATA.watchlist_size, 'Every watchlist protocol is on the board'),
-      box('Worth farming now?', farm + ' of ' + DATA.board_size, 'Break-even share under 0.001% of implied value'),
+      box('Best farm, net per hour?', 'Net ' + fmtNetHour(evOf(DATA.rows[0]).netHour), '10% drop, gas in · ' + farm + ' of ' + DATA.board_size + ' farmable'),
       box('What is the board worth?', fmtUsd(total), 'Implied value summed over all ' + DATA.board_size + ' rows')
     );
   }
@@ -428,7 +428,7 @@
           el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×.'),
           el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token: 30% under 90 days old have one, 79% over three years do. Growth enters the odds with a fitted negative weight — young growers are usually still pre-token — never as a multiplier.'),
           el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'Three terms were cut after blind tests — see the ablation table above. Category survives only inside P(token); no name is special-cased.'),
-          el('p', null, el('b', { text: 'Variant radar-2.9 — same model, new cover. ' }), 'The Risk Curators term is halved to −0.708 (fitted −1.416) as a regime-change prior. The board still ranks by the radar-2.4 scope rule (bridge, liquid-staking, exchange and wrapped out, plus versioned names and CEX). The blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
+          el('p', null, el('b', { text: 'Variant radar-2.10 — same model, new cover. ' }), 'The Risk Curators term is halved to −0.708 (fitted −1.416) as a regime-change prior. The board still ranks by the radar-2.4 scope rule (bridge, liquid-staking, exchange and wrapped out, plus versioned names and CEX). The blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),
