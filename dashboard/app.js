@@ -1,4 +1,4 @@
-// Token Radar (radar-2.8). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
+// Token Radar (radar-2.9). Reads window.RADAR (written beside dashboard/ by main.ts) and renders
 // the ranked board, a filterable table and a per-protocol detail view with the model's own
 // decomposition, the farm plan and a costed EV verdict. No network: every byte shown is in data.js.
 //
@@ -290,7 +290,7 @@
     });
   }
 
-  // KPI strip: six boxes, every number computed here from DATA — nothing typed in by hand.
+  // KPI strip: six boxes, every number computed from DATA.
   function kpiStrip() {
     var v = (DATA.model && DATA.model.validation) || {};
     var loo = v.loo_rmse !== undefined ? v.loo_rmse : 2.107;
@@ -313,15 +313,14 @@
     );
   }
 
-  // Ablation table on the cover: every term, its blind test, kept/dropped (r3/r4; Brier 0.192).
+  // Ablation table on the cover: every term, its blind test, kept/dropped.
   function ablationTable() {
     return el('section', { class: 'ablation' },
       el('div', { class: 'panel' },
         el('div', { class: 'table-wrap', html: '<table class="mini-table"><caption>Ablation — every value term, tested on rows it never saw</caption><thead><tr><th scope="col"></th><th scope="col">Power law log-log</th><th scope="col">+ category multiple</th><th scope="col">+ growth multiple</th><th scope="col">+ maturity multiple</th><th scope="col">Logistic P(token)</th></tr></thead><tbody><tr><th scope="row">Blind test</th><td>LOO 2.107 · WF 2.121</td><td>LOO 2.105 · WF 2.185</td><td>LOO 2.148</td><td>corr −0.004</td><td>AUC 0.780 · Brier 0.192</td></tr><tr><th scope="row">Verdict</th><td class="pos">KEPT</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="neg">DROPPED</td><td class="pos">KEPT</td></tr></tbody></table>' })));
   }
 
-  // Checkmark strip: only claims this page verifies while rendering. Each item is computed
-  // from DATA and the page's own recomputation; a failed check shows its real count, not a tick.
+  // Checkmark strip: only claims this page verifies while rendering; a failed check shows its real count.
   function checkStrip() {
     var n = DATA.rows.length;
     var recomputed = 0;
@@ -355,9 +354,7 @@
     scanNamesInCode(namesItem);
     return strip;
   }
-  // Fetch the dashboard's own files and count board names inside them. A page that cannot
-  // fetch its own files (file://) keeps the build-time wording instead; a fetch that returns
-  // nothing at all is treated the same way, never as a pass.
+  // Fetch the dashboard's own files and count board names inside them (file:// keeps the build-time wording).
   function scanNamesInCode(node) {
     var base = '';
     try { base = window.location.href.replace(/[^/]*$/, ''); } catch (e) { base = ''; }
@@ -379,8 +376,7 @@
     });
   }
 
-  // Honest-caveat callout: the interval is wide, and the top of the board is concentrated.
-  // Both numbers are computed from the board itself, not typed in.
+  // Honest-caveat callout: the interval is wide, the top is concentrated; both numbers computed from the board.
   function caveatCallout() {
     var top10 = DATA.rows.slice().sort(function (a, b) { return a.rank - b.rank; }).slice(0, 10);
     var rcTop = top10.filter(function (r) { return r.category === 'Risk Curators'; }).length;
@@ -392,20 +388,22 @@
     );
   }
 
+  // Cover audit strip (radar-2.9): one line in the header, no extra height — shot 1 keeps
+  // its 14 board rows. Every figure is computed from DATA, nothing typed in.
   function header() {
+    var v = (DATA.model && DATA.model.validation) || {};
+    var loo = v.loo_rmse !== undefined ? v.loo_rmse : 2.107;
+    var wf = v.walkforward_rmse !== undefined ? v.walkforward_rmse : 2.121;
+    var watch = DATA.rows.filter(isWatchlist).length;
     return el('header', { class: 'top' },
       el('div', { class: 'brand' }, el('span', { class: 'mark' }), el('span', { class: 'brand-name', text: 'Token Radar · ' + DATA.model_version })),
-      el('div', { class: 'top-meta' },
-        el('span', { text: 'Snapshot ' + DATA.as_of }),
-        el('span', { text: 'DefiLlama protocol index' }),
-        el('span', { text: 'Model ' + DATA.model_version })
+      el('div', { class: 'audit-strip' },
+        el('span', { text: 'Snapshot ' + DATA.as_of + ' · DefiLlama · ' + (DATA.ledger ? DATA.ledger.total : 758) + ' audited · ' + DATA.board_size + ' ranked · ' + watch + '/' + DATA.watchlist_size + ' watchlist · LOO ' + loo.toFixed(3) + ' · WF ' + wf.toFixed(3) + ' · Brier 0.192 · sha ' + (DATA.board_sha256 || '').slice(0, 8) })
       )
     );
   }
 
-  // The snapshot ledger: all 758 protocols, each counted once (model.ts ledgerGroups, via
-  // data.js). Short labels keep the bar to one flowing line; the Method section carries the
-  // full table with definitions and on-board counts.
+  // The snapshot ledger: all 758 protocols, each counted once; the Method section carries the full table.
   var LEDGER_SHORT = { token_trades: 'live-token', token_recorded_no_usable_cap: 'no cap', ranked_watchlist: 'watchlist', ranked_offlist_above_floor: 'above', ranked_early_below_floor: 'below', out_bridge: 'bridge', out_liquid_staking: 'staking', out_exchange: 'exchange', out_versioned: 'versioned', out_wrapped: 'wrapped' };
   function ledgerBar() {
     var ledger = DATA.ledger;
@@ -430,7 +428,7 @@
           el('p', null, el('b', { text: 'Why a power law, not a flat multiple. ' }), 'On the 128 listed peers the market-cap/TVL ratio falls about 65× from small to large protocols, so a flat 0.25 overvalues the giants roughly 8–23×.'),
           el('p', null, el('b', { text: 'Why age and growth sit in the odds. ' }), 'Age is the strongest sign a protocol has a token: 30% under 90 days old have one, 79% over three years do. Growth enters the odds with a fitted negative weight — young growers are usually still pre-token — never as a multiplier.'),
           el('p', null, el('b', { text: 'What was dropped, and why. ' }), 'Three terms were cut after blind tests — see the ablation table above. Category survives only inside P(token); no name is special-cased.'),
-          el('p', null, el('b', { text: 'Variant radar-2.8 — same model, new cover. ' }), 'The Risk Curators term is halved to −0.708 (fitted −1.416) as a regime-change prior. The board still ranks by the radar-2.4 scope rule (bridge, liquid-staking, exchange and wrapped out, plus versioned names and CEX). The blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
+          el('p', null, el('b', { text: 'Variant radar-2.9 — same model, new cover. ' }), 'The Risk Curators term is halved to −0.708 (fitted −1.416) as a regime-change prior. The board still ranks by the radar-2.4 scope rule (bridge, liquid-staking, exchange and wrapped out, plus versioned names and CEX). The blind numbers at right describe the radar-2.1 base fit; re-validation is pending.')
         ),
         el('div', { class: 'valid' },
           el('h3', { text: 'Blind validation — held out twice' }),

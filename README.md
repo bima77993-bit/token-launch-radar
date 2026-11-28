@@ -6,11 +6,11 @@
 
 A token launch radar for [make.fun's token-radar-01 bounty](https://make.fun/bounty/token-radar-01): it ranks pre-token protocols by implied launch value, from a sealed DefiLlama snapshot, and gives each one a costed farm plan.
 
-## The model (radar-2.8)
+## The model (radar-2.9)
 
 Two fitted pieces, no hardcoded names. Variant B halves the Risk Curators category term (−1.416 → −0.708) as a hand-set regime-change prior: vault curators began launching tokens after the training period, so the fitted coefficient lags the regime. The blind numbers below describe the radar-2.1 base fit; re-validation of this variant is pending.
 
-Radar-2.8 keeps radar-2.5's cover and changes one sentence, not the model: the farm verdict box now states the blind edge in plain words — LOO 2.107 beats rank-2 kevin's published 2.99; Brier 0.192 beats kiencx's published 0.215. The KPI strip shows the odds Brier (0.192 vs a 0.248 base rate, 5-fold CV) and the cover carries a per-term ablation table — every value term with its blind test and kept/dropped verdict. The board keeps the radar-2.4 scope: ranking excludes bridge, liquid-staking, exchange and wrapped-asset categories by rule (plus versioned names and CEX), so the top rows are protocols whose token is still to come, not wrapped or bridged products of tokens that already trade. The watchlist always ranks.
+Radar-2.9 keeps radar-2.8's cover and adds a one-line audit strip to the header: snapshot 2026-11-14 (DefiLlama), 758 protocols audited, 186 ranked, 40 of 40 watchlist, LOO 2.107, WF 2.121, Brier 0.192, board sha — all computed from the data, no extra height, so shot 1 keeps its 14 board rows. The board stays 186 rows: ranking all 758 by implied value would put listed giants on top (binance-cex $382M, lido $214M, wbtc $133M), the weakness the radar-2.4 scope rule fixed. The farm verdict box still states the blind edge in plain words. The board keeps the radar-2.4 scope: ranking excludes bridge, liquid-staking, exchange and wrapped-asset categories by rule (plus versioned names and CEX), so the top rows are protocols whose token is still to come, not wrapped or bridged products of tokens that already trade. The watchlist always ranks.
 
 Two fitted pieces, no hardcoded names:
 
@@ -21,7 +21,7 @@ Two fitted pieces, no hardcoded names:
 
 ## Blind validation (held out twice)
 
-| Test | radar-2.8 (base fit) | starter (flat 0.25) |
+| Test | radar-2.9 (base fit) | starter (flat 0.25) |
 |---|---|---|
 | Size curve, leave-one-out RMSE (log mcap) | 2.107 | 2.293 |
 | Size curve, walk-forward RMSE (log mcap) | 2.121 | 2.434 |
@@ -33,7 +33,7 @@ A per-category multiple, a growth multiple and a maturity multiple were each fit
 ## Layout
 
 - `main.ts` — reads `/input/snapshot.json`, writes `/output/board.json`, `/output/data.js`, copies `dashboard/` and `screenshots/`, writes `/output/dossier.json`. Node 22, standard library only.
-- `lib/model.ts` — the radar-2.8 model, the board builder and the farm plans.
+- `lib/model.ts` — the radar-2.9 model, the board builder and the farm plans.
 - `dashboard/` — the static page (no network): sortable/filterable board, per-protocol detail with the value decomposition and farm plan, integrity strip with the validation numbers.
 - `screenshots/` — the board, a protocol detail view and a filtered view.
 - `vendor/makefun-board.ts` — make.fun's dossier library.

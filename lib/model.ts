@@ -1,10 +1,11 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// radar-2.8 — the radar-2.2 model exactly (same coefficients, same implied value per
-// protocol), with the radar-2.4 board scope and radar-2.5's cover (odds Brier 0.192 vs
-// base 0.248, 5-fold CV, in the KPI strip; a per-term ablation table on the cover),
-// plus one sentence in the farm verdict box stating the blind edge in plain words
-// (LOO 2.107 vs kevin's published 2.99; Brier 0.192 vs kiencx's published 0.215).
+// radar-2.9 — the radar-2.2 model exactly (same coefficients, same implied value per
+// protocol), with the radar-2.4 board scope and radar-2.5's cover, plus a one-line cover
+// audit strip in the header (snapshot, 758 audited, 186 ranked, 40/40 watchlist, LOO,
+// WF, Brier, board sha). The board stays 186 rows: ranking all 758 by implied value
+// would put listed giants on top (binance-cex $382M, lido $214M, wbtc $133M — 108 rows
+// above the rank-10 value), the #1 board's weakness radar-2.4 fixed. Top 10 unchanged.
 // The model itself is the radar-2.1 base fit, with one hand-set change:
 // the Risk Curators term is halved to -0.7079 as a regime-change prior (vault curators began
 // launching tokens after the training period, so the fitted -1.4158 lags the regime). The blind
@@ -41,6 +42,8 @@
 // pre-token when its index entry records no token (no market cap, no CoinGecko id, no symbol);
 // the snapshot's live-token protocols are kept apart and shown as the market's own values,
 // never mixed into the ranked board.
+
+import { createHash } from 'node:crypto';
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -173,7 +176,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2.8';
+export const MODEL_VERSION = 'radar-2.9';
 
 /** How many pre-token protocols below the watchlist the early radar carries, by expected implied value. */
 export const EARLY_ROWS = 160;
@@ -264,6 +267,7 @@ export interface RadarData {
   floor_usd: number;
   model: ModelConstants;
   model_version: string;
+  board_sha256: string;
   watchlist_size: number;
   board_size: number;
   early_size: number;
@@ -682,6 +686,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
+    board_sha256: createHash('sha256').update(`${JSON.stringify({ rows: board })}\n`).digest('hex'),
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: early,
